@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -15,6 +16,14 @@ DEFAULT_TARGET_SPECIFICATIONS = [
 ]
 
 
+def is_maturity_approximate_24_hours(expiration_date_string: str) -> bool:
+    expiration_datetime = datetime.strptime(expiration_date_string, "%Y%m%d").replace(
+        hour=16, minute=0, second=0
+    )
+    hours_remaining = (expiration_datetime - datetime.now()).total_seconds() / 3600.0
+    return 18.0 <= hours_remaining <= 32.0
+
+
 def main(
     target_specifications: list[tuple[str, str, str]],
     host_address: str,
@@ -24,53 +33,20 @@ def main(
     credibility_interval_percentage: float,
     decay_factor: float,
     check_interval_seconds: float,
-    maximum_checks: int,
 ) -> None:
     client = InteractiveBrokersClient(host_address, port_number, client_identifier)
     client.check_connection()
 
     active_positions: list[dict] = []
 
-    for symbol, exchange, currency in target_specifications:
-        client.download_data(symbol, exchange, currency)
-        lower_price, upper_price = bayesian_inference(
-            symbol, credibility_interval_percentage, decay_factor
-        )
-
-        call_contract, put_contract, order_quantity = client.create_straddle(
-            symbol, exchange, currency, fixed_capital_amount_dollars
-        )
-
-        active_positions.append(
-            {
-                "symbol": symbol,
-                "exchange": exchange,
-                "currency": currency,
-                "lower_price": lower_price,
-                "upper_price": upper_price,
-                "call_contract": call_contract,
-                "put_contract": put_contract,
-                "order_quantity": order_quantity,
-                "is_active": True,
-            }
-        )
-
-    check_index = 0
-
-    while (
-        any(position["is_active"] for position in active_positions)
-        and check_index < maximum_checks
-    ):
+    while True:
         client.sleep(check_interval_seconds)
 
+        remaining_positions: list[dict] = []
         for position in active_positions:
-            if not position["is_active"]:
-                continue
-
             current_price = client.get_current_price(
                 position["symbol"], position["exchange"], position["currency"]
             )
-
             if (
                 current_price < position["lower_price"]
                 or current_price > position["upper_price"]
@@ -80,11 +56,42 @@ def main(
                     position["put_contract"],
                     position["order_quantity"],
                 )
-                position["is_active"] = False
+            else:
+                remaining_positions.append(position)
+        active_positions = remaining_positions
 
-        check_index += 1
+        active_symbols = {position["symbol"] for position in active_positions}
+        for symbol, exchange, currency in target_specifications:
+            if symbol in active_symbols:
+                continue
 
-    client.disconnect()
+            nearest_expiration = client.get_nearest_expiration(
+                symbol, exchange, currency
+            )
+            if is_maturity_approximate_24_hours(nearest_expiration):
+                client.download_data(symbol, exchange, currency)
+                lower_price, upper_price = bayesian_inference(
+                    symbol, credibility_interval_percentage, decay_factor
+                )
+                call_contract, put_contract, order_quantity = client.create_straddle(
+                    symbol,
+                    exchange,
+                    currency,
+                    nearest_expiration,
+                    fixed_capital_amount_dollars,
+                )
+                active_positions.append(
+                    {
+                        "symbol": symbol,
+                        "exchange": exchange,
+                        "currency": currency,
+                        "lower_price": lower_price,
+                        "upper_price": upper_price,
+                        "call_contract": call_contract,
+                        "put_contract": put_contract,
+                        "order_quantity": order_quantity,
+                    }
+                )
 
 
 if __name__ == "__main__":
@@ -115,5 +122,4 @@ if __name__ == "__main__":
         credibility_percentage_value,
         0.995,
         5.0,
-        100,
     )
