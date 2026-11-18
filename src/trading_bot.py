@@ -152,6 +152,7 @@ class TradingBot:
             pnl_sign = "+" if position_pnl >= 0 else ""
             print(
                 f"[{current_time_string}] [{self.symbol} PING] "
+                f"Position Open | "
                 f"Spot: {current_price:.2f} {self.currency} | "
                 f"P/L: {pnl_sign}{position_pnl:.2f} {self.currency} | "
                 f"Start: {self.active_position.start_time} | "
@@ -171,11 +172,9 @@ class TradingBot:
             ).total_seconds() / 3600.0
             print(
                 f"[{current_time_string}] [{self.symbol} PING] "
+                f"No position open | "
                 f"Spot: {current_price:.2f} {self.currency} | "
-                f"P/L: N/A | "
-                f"Start: N/A | "
-                f"Maturity: {nearest_expiration} 16:00 ({hours_until_expiration:.1f}h) | "
-                f"Critical: N/A",
+                f"Next Expiration: {nearest_expiration} 16:00 ({hours_until_expiration:.1f}h)",
                 flush=True,
             )
 
