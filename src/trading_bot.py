@@ -30,7 +30,9 @@ class Position:
 class TradingBot:
     def __init__(
         self,
-        target_specifications: list[tuple[str, str, str]],
+        symbol: str,
+        exchange: str,
+        currency: str,
         host_address: str,
         port_number: int,
         client_identifier: int,
@@ -39,11 +41,9 @@ class TradingBot:
         decay_factor: float,
         check_interval_seconds: float,
     ) -> None:
-        if not target_specifications:
-            raise ValueError(
-                "target_specifications must contain at least one contract specification."
-            )
-        self.target_specifications = target_specifications
+        self.symbol = symbol.upper()
+        self.exchange = exchange.upper()
+        self.currency = currency.upper()
         self.host_address = host_address
         self.port_number = port_number
         self.client_identifier = client_identifier
@@ -54,7 +54,7 @@ class TradingBot:
         self.client = InteractiveBrokersClient(
             host_address, port_number, client_identifier
         )
-        self.active_positions: list[Position] = []
+        self.active_position: Position | None = None
 
     def is_maturity_within_check_window(
         self,
@@ -72,113 +72,72 @@ class TradingBot:
             <= self.check_interval_seconds
         )
 
-    def check_active_positions(self) -> None:
-        remaining_positions: list[Position] = []
-        for position in self.active_positions:
+    def check_active_position(self) -> None:
+        if self.active_position is None:
+            return
+
+        current_price = self.client.get_current_price(
+            self.symbol, self.exchange, self.currency
+        )
+        if (
+            current_price < self.active_position.lower_price
+            or current_price > self.active_position.upper_price
+        ):
+            self.client.neutralize_straddle(
+                self.active_position.call_contract,
+                self.active_position.put_contract,
+                self.active_position.order_quantity,
+            )
+            self.active_position = None
+
+    def open_new_position(self) -> None:
+        if self.active_position is not None:
+            return
+
+        nearest_expiration = self.client.get_nearest_expiration(
+            self.symbol, self.exchange, self.currency
+        )
+        if self.is_maturity_within_check_window(nearest_expiration):
+            self.client.download_data(self.symbol, self.exchange, self.currency)
             current_price = self.client.get_current_price(
-                position.symbol, position.exchange, position.currency
+                self.symbol, self.exchange, self.currency
             )
-            if (
-                current_price < position.lower_price
-                or current_price > position.upper_price
-            ):
-                self.client.neutralize_straddle(
-                    position.call_contract,
-                    position.put_contract,
-                    position.order_quantity,
-                )
-            else:
-                remaining_positions.append(position)
-        self.active_positions = remaining_positions
-
-    def open_new_positions(self) -> None:
-        active_symbols = {position.symbol for position in self.active_positions}
-        for symbol, exchange, currency in self.target_specifications:
-            if symbol in active_symbols:
-                continue
-
-            nearest_expiration = self.client.get_nearest_expiration(
-                symbol, exchange, currency
+            lower_price, upper_price = bayesian_inference(
+                self.symbol,
+                current_price,
+                self.credibility_interval_percentage,
+                self.decay_factor,
             )
-            if self.is_maturity_within_check_window(nearest_expiration):
-                self.client.download_data(symbol, exchange, currency)
-                current_price = self.client.get_current_price(
-                    symbol, exchange, currency
-                )
-                lower_price, upper_price = bayesian_inference(
-                    symbol,
-                    current_price,
-                    self.credibility_interval_percentage,
-                    self.decay_factor,
-                )
-                call_contract, put_contract, order_quantity = (
-                    self.client.create_straddle(
-                        symbol,
-                        exchange,
-                        currency,
-                        nearest_expiration,
-                        self.fixed_capital_amount_dollars,
-                    )
-                )
-                self.active_positions.append(
-                    Position(
-                        symbol,
-                        exchange,
-                        currency,
-                        lower_price,
-                        upper_price,
-                        call_contract,
-                        put_contract,
-                        order_quantity,
-                    )
-                )
+            call_contract, put_contract, order_quantity = self.client.create_straddle(
+                self.symbol,
+                self.exchange,
+                self.currency,
+                nearest_expiration,
+                self.fixed_capital_amount_dollars,
+            )
+            self.active_position = Position(
+                self.symbol,
+                self.exchange,
+                self.currency,
+                lower_price,
+                upper_price,
+                call_contract,
+                put_contract,
+                order_quantity,
+            )
 
     def run(self) -> None:
         self.client.check_connection()
         while True:
             self.client.sleep(self.check_interval_seconds)
-            self.check_active_positions()
-            self.open_new_positions()
-
-
-def parse_target_specifications(
-    raw_targets: list[str],
-) -> list[tuple[str, str, str]]:
-    target_specifications: list[tuple[str, str, str]] = []
-    if raw_targets:
-        if len(raw_targets) % 3 != 0:
-            raise ValueError(
-                "Target specifications must be provided in triplets of SYMBOL EXCHANGE CURRENCY."
-            )
-        for index in range(0, len(raw_targets), 3):
-            target_specifications.append(
-                (
-                    raw_targets[index].upper(),
-                    raw_targets[index + 1].upper(),
-                    raw_targets[index + 2].upper(),
-                )
-            )
-    else:
-        environment_targets = os.environ.get("TARGET_SPECIFICATIONS")
-        if environment_targets:
-            for entry in environment_targets.split(","):
-                parts = entry.strip().split(":")
-                if len(parts) == 3:
-                    target_specifications.append(
-                        (
-                            parts[0].upper(),
-                            parts[1].upper(),
-                            parts[2].upper(),
-                        )
-                    )
-    if not target_specifications:
-        raise ValueError(
-            "No target specifications provided. Pass contract specifications as command line arguments or via TARGET_SPECIFICATIONS environment variable."
-        )
-    return target_specifications
+            self.check_active_position()
+            self.open_new_position()
 
 
 def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
+    symbol_environment_value = os.environ.get("TARGET_SYMBOL")
+    exchange_environment_value = os.environ.get("TARGET_EXCHANGE")
+    currency_environment_value = os.environ.get("TARGET_CURRENCY")
     host_environment_value = os.environ.get("INTERACTIVE_BROKERS_HOST")
     port_environment_value = os.environ.get("INTERACTIVE_BROKERS_PORT")
     client_identifier_environment_value = os.environ.get(
@@ -192,15 +151,27 @@ def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
     )
     decay_factor_environment_value = os.environ.get("DECAY_FACTOR")
     check_interval_environment_value = os.environ.get("CHECK_INTERVAL_SECONDS")
-    targets_environment_value = os.environ.get("TARGET_SPECIFICATIONS")
 
     argument_parser = argparse.ArgumentParser(
-        description="Automated short straddle options trading bot."
+        description="Automated short straddle options trading bot for a single asset."
     )
     argument_parser.add_argument(
-        "targets",
-        nargs="*" if targets_environment_value else "+",
-        help="Target contract specifications as triplets: SYMBOL EXCHANGE CURRENCY ...",
+        "symbol",
+        nargs="?" if symbol_environment_value else None,
+        default=symbol_environment_value,
+        help="Target contract symbol (e.g. SPX).",
+    )
+    argument_parser.add_argument(
+        "exchange",
+        nargs="?" if exchange_environment_value else None,
+        default=exchange_environment_value,
+        help="Target contract exchange (e.g. CBOE).",
+    )
+    argument_parser.add_argument(
+        "currency",
+        nargs="?" if currency_environment_value else None,
+        default=currency_environment_value,
+        help="Target contract currency (e.g. USD).",
     )
     argument_parser.add_argument(
         "--host",
@@ -273,7 +244,9 @@ def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
         help="Interval in seconds between active position checks.",
     )
     parsed_arguments = argument_parser.parse_args(command_line_arguments)
-    parsed_arguments.targets = parse_target_specifications(parsed_arguments.targets)
+    parsed_arguments.symbol = parsed_arguments.symbol.upper()
+    parsed_arguments.exchange = parsed_arguments.exchange.upper()
+    parsed_arguments.currency = parsed_arguments.currency.upper()
     return parsed_arguments
 
 
@@ -281,7 +254,9 @@ def main() -> None:
     parsed_arguments = parse_arguments(sys.argv[1:])
 
     bot = TradingBot(
-        parsed_arguments.targets,
+        parsed_arguments.symbol,
+        parsed_arguments.exchange,
+        parsed_arguments.currency,
         parsed_arguments.host,
         parsed_arguments.port,
         parsed_arguments.client_id,
