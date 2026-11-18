@@ -30,6 +30,30 @@ class InteractiveBrokersClient:
     def sleep(self, seconds: float) -> None:
         self.interactive_brokers.sleep(seconds)
 
+    def get_net_liquidation_value(self) -> float:
+        account_summary_values = self.interactive_brokers.accountSummary()
+        for item in account_summary_values:
+            if item.tag == "NetLiquidation":
+                return float(item.value)
+        for item in self.interactive_brokers.accountValues():
+            if item.tag == "NetLiquidation":
+                return float(item.value)
+        return 100000.0
+
+    def calculate_order_quantity(
+        self,
+        strike_price: float,
+        contract_multiplier: float,
+        capital_investment_percentage: float,
+    ) -> int:
+        total_capital = self.get_net_liquidation_value()
+        allocated_capital = total_capital * capital_investment_percentage
+        contract_notional_value = strike_price * contract_multiplier
+        if contract_notional_value <= 0.0:
+            return 1
+        calculated_quantity = int(allocated_capital / contract_notional_value)
+        return max(1, calculated_quantity)
+
     def download_data(
         self,
         symbol: str,
@@ -72,8 +96,8 @@ class InteractiveBrokersClient:
         symbol: str,
         exchange: str,
         currency: str,
-        order_quantity: int,
-    ) -> tuple[Option, Option]:
+        capital_investment_percentage: float,
+    ) -> tuple[Option, Option, int]:
         underlying_contract = Index(symbol, exchange, currency)
         self.interactive_brokers.qualifyContracts(underlying_contract)
         chains = self.interactive_brokers.reqSecDefOptParams(
@@ -116,13 +140,24 @@ class InteractiveBrokersClient:
         )
         self.interactive_brokers.qualifyContracts(call_contract, put_contract)
 
+        contract_multiplier = (
+            float(call_contract.multiplier)
+            if getattr(call_contract, "multiplier", None)
+            else 100.0
+        )
+        order_quantity = self.calculate_order_quantity(
+            closest_strike,
+            contract_multiplier,
+            capital_investment_percentage,
+        )
+
         self.interactive_brokers.placeOrder(
             call_contract, MarketOrder("SELL", order_quantity)
         )
         self.interactive_brokers.placeOrder(
             put_contract, MarketOrder("SELL", order_quantity)
         )
-        return call_contract, put_contract
+        return call_contract, put_contract, order_quantity
 
     def neutralize_straddle(
         self,
