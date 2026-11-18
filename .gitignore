@@ -6,3 +6,6 @@ skills/system/run-workflow/
 data/
 AGENTS.md
 literature
+.env
+*.env
+docker/.env
