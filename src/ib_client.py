@@ -1,7 +1,4 @@
-import argparse
 import math
-import os
-import sys
 from pathlib import Path
 
 from ib_async import IB, Index, MarketOrder, Option, util
@@ -169,62 +166,3 @@ class InteractiveBrokersClient:
         self.interactive_brokers.placeOrder(
             put_contract, MarketOrder("BUY", order_quantity)
         )
-
-
-def main() -> None:
-    host_environment_value = os.environ.get("INTERACTIVE_BROKERS_HOST")
-    port_environment_value = os.environ.get("INTERACTIVE_BROKERS_PORT")
-    client_identifier_environment_value = os.environ.get(
-        "INTERACTIVE_BROKERS_CLIENT_ID"
-    )
-
-    argument_parser = argparse.ArgumentParser(
-        description="Download historical market data from Interactive Brokers."
-    )
-    argument_parser.add_argument("symbol", help="Contract symbol, e.g. SPX")
-    argument_parser.add_argument("exchange", help="Exchange, e.g. CBOE")
-    argument_parser.add_argument("currency", help="Currency, e.g. USD")
-    argument_parser.add_argument(
-        "--host",
-        default=host_environment_value,
-        required=host_environment_value is None,
-        help="Interactive Brokers Gateway or TWS host address.",
-    )
-    argument_parser.add_argument(
-        "--port",
-        type=int,
-        default=(
-            int(port_environment_value) if port_environment_value is not None else None
-        ),
-        required=port_environment_value is None,
-        help="Interactive Brokers Gateway or TWS port number.",
-    )
-    argument_parser.add_argument(
-        "--client-id",
-        type=int,
-        default=(
-            int(client_identifier_environment_value)
-            if client_identifier_environment_value is not None
-            else None
-        ),
-        required=client_identifier_environment_value is None,
-        help="Interactive Brokers client identifier.",
-    )
-    parsed_arguments = argument_parser.parse_args(sys.argv[1:])
-
-    client = InteractiveBrokersClient(
-        parsed_arguments.host,
-        parsed_arguments.port,
-        parsed_arguments.client_id,
-    )
-    client.check_connection()
-    client.download_data(
-        parsed_arguments.symbol.upper(),
-        parsed_arguments.exchange.upper(),
-        parsed_arguments.currency.upper(),
-    )
-    client.disconnect()
-
-
-if __name__ == "__main__":
-    main()
