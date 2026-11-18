@@ -1,4 +1,5 @@
 import math
+from datetime import datetime
 from pathlib import Path
 
 from ib_async import IB, Index, MarketOrder, Option, util
@@ -84,8 +85,23 @@ class InteractiveBrokersClient:
             underlying_contract.secType,
             underlying_contract.conId,
         )
-        selected_chain = chains[0]
-        return min(selected_chain.expirations)
+        now = datetime.now()
+        future_expirations = []
+        for chain in chains:
+            for expiration_string in chain.expirations:
+                expiration_datetime = datetime.strptime(
+                    expiration_string, "%Y%m%d"
+                ).replace(hour=16, minute=0, second=0)
+                if expiration_datetime > now:
+                    future_expirations.append(expiration_string)
+        if future_expirations:
+            return min(future_expirations)
+        all_expirations = [
+            expiration_string
+            for chain in chains
+            for expiration_string in chain.expirations
+        ]
+        return min(all_expirations)
 
     def create_straddle(
         self,
@@ -103,7 +119,22 @@ class InteractiveBrokersClient:
             underlying_contract.secType,
             underlying_contract.conId,
         )
-        selected_chain = chains[0]
+        selected_chain = next(
+            (
+                chain
+                for chain in chains
+                if expiration_date_string in chain.expirations
+                and chain.exchange == underlying_contract.exchange
+            ),
+            next(
+                (
+                    chain
+                    for chain in chains
+                    if expiration_date_string in chain.expirations
+                ),
+                chains[0],
+            ),
+        )
 
         market_data = self.interactive_brokers.reqMktData(
             underlying_contract, "", False, False
@@ -125,16 +156,18 @@ class InteractiveBrokersClient:
             expiration_date_string,
             closest_strike,
             "C",
-            selected_chain.exchange,
+            underlying_contract.exchange,
             currency=underlying_contract.currency,
+            tradingClass=selected_chain.tradingClass,
         )
         put_contract = Option(
             underlying_contract.symbol,
             expiration_date_string,
             closest_strike,
             "P",
-            selected_chain.exchange,
+            underlying_contract.exchange,
             currency=underlying_contract.currency,
+            tradingClass=selected_chain.tradingClass,
         )
         self.interactive_brokers.qualifyContracts(call_contract, put_contract)
 
