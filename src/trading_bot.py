@@ -16,71 +16,90 @@ DEFAULT_TARGET_SPECIFICATIONS = [
 ]
 
 
-def is_maturity_approximate_24_hours(expiration_date_string: str) -> bool:
-    expiration_datetime = datetime.strptime(expiration_date_string, "%Y%m%d").replace(
-        hour=16, minute=0, second=0
-    )
-    hours_remaining = (expiration_datetime - datetime.now()).total_seconds() / 3600.0
-    return 18.0 <= hours_remaining <= 32.0
+class TradingBot:
+    def __init__(
+        self,
+        target_specifications: list[tuple[str, str, str]],
+        host_address: str,
+        port_number: int,
+        client_identifier: int,
+        fixed_capital_amount_dollars: float,
+        credibility_interval_percentage: float,
+        decay_factor: float,
+        check_interval_seconds: float,
+    ) -> None:
+        self.target_specifications = target_specifications
+        self.host_address = host_address
+        self.port_number = port_number
+        self.client_identifier = client_identifier
+        self.fixed_capital_amount_dollars = fixed_capital_amount_dollars
+        self.credibility_interval_percentage = credibility_interval_percentage
+        self.decay_factor = decay_factor
+        self.check_interval_seconds = check_interval_seconds
+        self.client = InteractiveBrokersClient(
+            host_address, port_number, client_identifier
+        )
+        self.active_positions: list[dict] = []
 
+    def is_maturity_within_check_window(
+        self,
+        expiration_date_string: str,
+    ) -> bool:
+        expiration_datetime = datetime.strptime(
+            expiration_date_string, "%Y%m%d"
+        ).replace(hour=16, minute=0, second=0)
+        seconds_until_expiration = (
+            expiration_datetime - datetime.now()
+        ).total_seconds()
+        target_seconds = 24.0 * 3600.0
+        return (
+            abs(seconds_until_expiration - target_seconds)
+            <= self.check_interval_seconds
+        )
 
-def main(
-    target_specifications: list[tuple[str, str, str]],
-    host_address: str,
-    port_number: int,
-    client_identifier: int,
-    fixed_capital_amount_dollars: float,
-    credibility_interval_percentage: float,
-    decay_factor: float,
-    check_interval_seconds: float,
-) -> None:
-    client = InteractiveBrokersClient(host_address, port_number, client_identifier)
-    client.check_connection()
-
-    active_positions: list[dict] = []
-
-    while True:
-        client.sleep(check_interval_seconds)
-
+    def check_active_positions(self) -> None:
         remaining_positions: list[dict] = []
-        for position in active_positions:
-            current_price = client.get_current_price(
+        for position in self.active_positions:
+            current_price = self.client.get_current_price(
                 position["symbol"], position["exchange"], position["currency"]
             )
             if (
                 current_price < position["lower_price"]
                 or current_price > position["upper_price"]
             ):
-                client.neutralize_straddle(
+                self.client.neutralize_straddle(
                     position["call_contract"],
                     position["put_contract"],
                     position["order_quantity"],
                 )
             else:
                 remaining_positions.append(position)
-        active_positions = remaining_positions
+        self.active_positions = remaining_positions
 
-        active_symbols = {position["symbol"] for position in active_positions}
-        for symbol, exchange, currency in target_specifications:
+    def open_new_positions(self) -> None:
+        active_symbols = {position["symbol"] for position in self.active_positions}
+        for symbol, exchange, currency in self.target_specifications:
             if symbol in active_symbols:
                 continue
 
-            nearest_expiration = client.get_nearest_expiration(
+            nearest_expiration = self.client.get_nearest_expiration(
                 symbol, exchange, currency
             )
-            if is_maturity_approximate_24_hours(nearest_expiration):
-                client.download_data(symbol, exchange, currency)
+            if self.is_maturity_within_check_window(nearest_expiration):
+                self.client.download_data(symbol, exchange, currency)
                 lower_price, upper_price = bayesian_inference(
-                    symbol, credibility_interval_percentage, decay_factor
+                    symbol, self.credibility_interval_percentage, self.decay_factor
                 )
-                call_contract, put_contract, order_quantity = client.create_straddle(
-                    symbol,
-                    exchange,
-                    currency,
-                    nearest_expiration,
-                    fixed_capital_amount_dollars,
+                call_contract, put_contract, order_quantity = (
+                    self.client.create_straddle(
+                        symbol,
+                        exchange,
+                        currency,
+                        nearest_expiration,
+                        self.fixed_capital_amount_dollars,
+                    )
                 )
-                active_positions.append(
+                self.active_positions.append(
                     {
                         "symbol": symbol,
                         "exchange": exchange,
@@ -92,6 +111,13 @@ def main(
                         "order_quantity": order_quantity,
                     }
                 )
+
+    def run(self) -> None:
+        self.client.check_connection()
+        while True:
+            self.client.sleep(self.check_interval_seconds)
+            self.check_active_positions()
+            self.open_new_positions()
 
 
 if __name__ == "__main__":
@@ -113,7 +139,7 @@ if __name__ == "__main__":
         if len(sys.argv) > 5:
             fixed_capital_amount_value = float(sys.argv[5])
 
-    main(
+    bot = TradingBot(
         targets,
         host_address_value,
         port_number_value,
@@ -123,3 +149,4 @@ if __name__ == "__main__":
         0.995,
         5.0,
     )
+    bot.run()
