@@ -1,4 +1,6 @@
 from src.interactive_brokers_client import (
+    IBClient,
+    InteractiveBrokersClient,
     check_connection,
     create_straddle,
     download_data,
@@ -6,6 +8,8 @@ from src.interactive_brokers_client import (
 )
 
 __all__ = [
+    "IBClient",
+    "InteractiveBrokersClient",
     "check_connection",
     "create_straddle",
     "download_data",
