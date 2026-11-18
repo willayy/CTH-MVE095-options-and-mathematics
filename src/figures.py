@@ -13,219 +13,180 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.bayesian_inference import load_daily_returns
 
-CONFIGS = {
-    "S&P 500 (SPX)": ("SP500", 4.0, 0.25),
-    "STOXX Europe 600 (DJ600)": ("STOXX600", 4.0, 0.25),
-}
-COLORS = {"SP500": "#1f77b4", "STOXX600": "#ff7f0e"}
+DATA_DIRECTORY = PROJECT_ROOT / "data"
+FIGURES_DIRECTORY = PROJECT_ROOT / "figures"
 
 
-# --- Reusable Helpers ---
-
-
-def get_pct_returns(returns_df: pd.DataFrame, sym: str) -> np.ndarray:
+def get_percentage_returns(return_series: pd.Series) -> np.ndarray:
     """Return non-null percentage returns for a symbol."""
-    return (returns_df[sym].dropna() * 100).values
+    return (return_series.dropna() * 100.0).values
 
 
-def compute_ecdf(data: np.ndarray, edges: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def compute_empirical_cumulative_distribution_function(
+    data: np.ndarray,
+    edges: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
     """Compute empirical cumulative distribution steps over specified bin edges."""
     counts, _ = np.histogram(np.clip(data, edges[0], edges[-1]), bins=edges)
-    cum = np.cumsum(counts) / len(data)
-    return np.concatenate([[edges[0]], edges[1:]]), np.concatenate([[0.0], cum])
+    cumulative_probabilities = np.cumsum(counts) / len(data)
+    return (
+        np.concatenate([[edges[0]], edges[1:]]),
+        np.concatenate([[0.0], cumulative_probabilities]),
+    )
 
 
-def save_and_close(fig: plt.Figure, out_path: Path) -> Path:
+def save_and_close_figure(figure: plt.Figure, output_file_path: Path) -> Path:
     """Save figure at 300 DPI and close it."""
-    fig.savefig(out_path, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Saved: {out_path}")
-    return out_path
+    figure.savefig(output_file_path, dpi=300, bbox_inches="tight")
+    plt.close(figure)
+    print(f"Saved: {output_file_path}")
+    return output_file_path
 
 
 def format_cumulative_axis(
-    ax: plt.Axes, xmax: float = 6.0, ylabel: str | None = None
+    axes: plt.Axes,
+    maximum_x_value: float,
+    y_axis_label: str,
 ) -> None:
     """Apply standard styling to cumulative probability axes."""
-    ax.set_xlabel("Movement Magnitude Threshold x (%)", fontsize=10)
-    if ylabel:
-        ax.set_ylabel(ylabel, fontsize=11)
-    ax.set_xlim(0, xmax)
-    ax.set_ylim(0, 1.02)
-    ax.set_xticks(np.arange(0, xmax + 0.5, 0.5))
-    ax.set_yticks(np.arange(0, 1.1, 0.1))
-    ax.grid(True, linestyle=":", alpha=0.6)
+    axes.set_xlabel("Movement Magnitude Threshold x (%)", fontsize=10)
+    if y_axis_label:
+        axes.set_ylabel(y_axis_label, fontsize=11)
+    axes.set_xlim(0, maximum_x_value)
+    axes.set_ylim(0, 1.02)
+    axes.set_xticks(np.arange(0, maximum_x_value + 0.5, 0.5))
+    axes.set_yticks(np.arange(0, 1.1, 0.1))
+    axes.grid(True, linestyle=":", alpha=0.6)
 
 
-# --- Plotting Functions ---
+def plot_variance_distribution(
+    ticker: str,
+    return_series: pd.Series,
+    output_directory: Path,
+) -> Path:
+    percentage_returns = get_percentage_returns(return_series)
+    span = 4.0
+    bucket_width = 0.25
+    edges = np.arange(-span, span + bucket_width, bucket_width)
+    clipped_data = np.clip(percentage_returns, edges[0], edges[-1])
 
-
-def plot_variance_comparison(returns_df: pd.DataFrame, figures_dir: Path) -> Path:
-    """Generate 3-panel figure: side-by-side bucket histograms (top) and overlaid distribution (bottom)."""
-    fig, axd = plt.subplot_mosaic(
-        [["SP500", "STOXX600"], ["overlaid", "overlaid"]],
-        figsize=(14, 9.5),
-        layout="constrained",
+    figure, axes = plt.subplots(figsize=(10, 6), layout="constrained")
+    axes.hist(
+        clipped_data,
+        bins=list(edges),
+        weights=np.ones(len(clipped_data)) / len(clipped_data) * 100.0,
+        color="#1f77b4",
+        edgecolor="black",
+        linewidth=0.5,
+        rwidth=0.85,
     )
-
-    # Top panels: side-by-side histograms
-    for label, (sym, span, width) in CONFIGS.items():
-        ax = axd[sym]
-        data = get_pct_returns(returns_df, sym)
-        edges = np.arange(-span, span + width, width)
-        clipped = np.clip(data, edges[0], edges[-1])
-        ax.hist(
-            clipped,
-            bins=edges,
-            weights=np.ones(len(clipped)) / len(clipped) * 100,
-            color=COLORS[sym],
-            edgecolor="black",
-            linewidth=0.5,
-            rwidth=0.85,
-        )
-        ax.set_title(
-            f"{label} (Daily Std: {data.std():.2f}%)\nBucket Size: {width:.2f}%",
-            fontsize=11,
-            fontweight="bold",
-        )
-        ax.set_xlabel(f"Daily Return Bucket (Width: {width:.2f}%)", fontsize=10)
-        ax.set_ylabel("Percentage of Days (%)", fontsize=10)
-        ax.grid(True, axis="y", linestyle=":", alpha=0.7)
-
-    # Bottom panel: overlaid frequency step comparison
-    ax_bottom = axd["overlaid"]
-    edges_overlay = np.arange(-5.0, 5.25, 0.25)
-    for label, (sym, _, _) in CONFIGS.items():
-        data = get_pct_returns(returns_df, sym)
-        counts, _ = np.histogram(
-            np.clip(data, edges_overlay[0], edges_overlay[-1]), bins=edges_overlay
-        )
-        ax_bottom.step(
-            edges_overlay[:-1],
-            counts / len(data) * 100,
-            where="post",
-            linewidth=2.0,
-            color=COLORS[sym],
-            label=f"{label} (Daily Std: {data.std():.2f}%)",
-        )
-
-    ax_bottom.set_title(
-        "Overlaid Discretized Daily Return Distributions (Bucket Size: 0.25%)",
+    axes.set_title(
+        f"{ticker.upper()} Daily Return Distribution (Daily Std: {percentage_returns.std():.2f}%)\nBucket Size: {bucket_width:.2f}%",
         fontsize=12,
         fontweight="bold",
     )
-    ax_bottom.set_xlabel("Daily Return Bucket (Width: 0.25%)", fontsize=10)
-    ax_bottom.set_ylabel("Percentage of Days (%)", fontsize=10)
-    ax_bottom.set_xlim(-5.0, 5.0)
-    ax_bottom.set_xticks(np.arange(-5.0, 5.5, 1.0))
-    ax_bottom.grid(True, linestyle=":", alpha=0.6)
-    ax_bottom.legend(frameon=True)
+    axes.set_xlabel(f"Daily Return Bucket (Width: {bucket_width:.2f}%)", fontsize=10)
+    axes.set_ylabel("Percentage of Days (%)", fontsize=10)
+    axes.grid(True, axis="y", linestyle=":", alpha=0.7)
 
-    fig.suptitle(
-        "10-Year Daily Return Distributions: S&P 500 vs. STOXX Europe 600",
-        fontsize=14,
-        fontweight="bold",
-    )
-    return save_and_close(fig, figures_dir / "daily_returns_variance_comparison.png")
+    output_path = output_directory / f"{ticker.lower()}_variance_distribution.png"
+    return save_and_close_figure(figure, output_path)
 
 
-def plot_cumulative_movement(returns_df: pd.DataFrame, figures_dir: Path) -> Path:
-    """Generate 3-panel figure: absolute movement ECDF (top) and conditional negative/positive ECDFs (bottom)."""
-    fig, axd = plt.subplot_mosaic(
-        [["abs", "abs"], ["SP500", "STOXX600"]],
-        figsize=(14, 9.5),
-        layout="constrained",
-    )
+def plot_cumulative_movement(
+    ticker: str,
+    return_series: pd.Series,
+    output_directory: Path,
+) -> Path:
+    percentage_returns = get_percentage_returns(return_series)
+    absolute_data = np.abs(percentage_returns)
     edges = np.arange(0.0, 6.10, 0.10)
 
-    # Top panel: Cumulative probability of daily absolute movement P(|Return| <= x)
-    ax_abs = axd["abs"]
-    for label, (sym, _, _) in CONFIGS.items():
-        abs_data = np.abs(get_pct_returns(returns_df, sym))
-        x_vals, y_vals = compute_ecdf(abs_data, edges)
-        p1, p2 = (abs_data <= 1.0).mean() * 100, (abs_data <= 2.0).mean() * 100
-        ax_abs.step(
-            x_vals,
-            y_vals,
-            where="post",
-            linewidth=2.2,
-            color=COLORS[sym],
-            label=f"{label} (P(|R| ≤ 1%): {p1:.1f}%, P(|R| ≤ 2%): {p2:.1f}%)",
-        )
-        ax_abs.fill_between(x_vals, y_vals, step="post", alpha=0.10, color=COLORS[sym])
+    figure, (axes_top, axes_bottom) = plt.subplots(
+        2, 1, figsize=(10, 9), layout="constrained"
+    )
 
-    ax_abs.set_title(
-        "Cumulative Probability of Daily Absolute Movement P(|Return| ≤ x)",
+    # Top panel: Cumulative probability P(|R| <= x)
+    x_values, y_values = compute_empirical_cumulative_distribution_function(
+        absolute_data, edges
+    )
+    probability_1pct = float((absolute_data <= 1.0).mean() * 100.0)
+    probability_2pct = float((absolute_data <= 2.0).mean() * 100.0)
+
+    axes_top.step(
+        x_values,
+        y_values,
+        where="post",
+        linewidth=2.2,
+        color="#1f77b4",
+        label=f"{ticker.upper()} (P(|R| ≤ 1%): {probability_1pct:.1f}%, P(|R| ≤ 2%): {probability_2pct:.1f}%)",
+    )
+    axes_top.fill_between(x_values, y_values, step="post", alpha=0.10, color="#1f77b4")
+    axes_top.set_title(
+        f"{ticker.upper()} Cumulative Probability of Daily Absolute Movement P(|Return| ≤ x)",
         fontsize=12,
         fontweight="bold",
     )
-    format_cumulative_axis(ax_abs, xmax=6.0, ylabel="Cumulative Probability P(|R| ≤ x)")
-    ax_abs.legend(frameon=True, fontsize=9.5, loc="lower right")
+    format_cumulative_axis(axes_top, 6.0, "Cumulative Probability P(|R| ≤ x)")
+    axes_top.legend(frameon=True, fontsize=10, loc="lower right")
 
-    # Bottom panels: Conditional negative vs. positive daily movements
-    for label, (sym, _, _) in CONFIGS.items():
-        ax = axd[sym]
-        data = get_pct_returns(returns_df, sym)
-        neg, pos = np.abs(data[data <= 0]), data[data >= 0]
-        x, y_neg = compute_ecdf(neg, edges)
-        _, y_pos = compute_ecdf(pos, edges)
-        p_neg, p_pos = (neg <= 1.0).mean() * 100, (pos <= 1.0).mean() * 100
+    # Bottom panel: Conditional negative vs. positive movements
+    negative_returns = np.abs(percentage_returns[percentage_returns <= 0.0])
+    positive_returns = percentage_returns[percentage_returns >= 0.0]
+    x_negative, y_negative = compute_empirical_cumulative_distribution_function(
+        negative_returns, edges
+    )
+    x_positive, y_positive = compute_empirical_cumulative_distribution_function(
+        positive_returns, edges
+    )
 
-        ax.step(
-            x,
-            y_neg,
-            where="post",
-            color="#d62728",
-            linewidth=2.2,
-            linestyle="--",
-            label=f"Negative (Down {len(neg) / len(data) * 100:.1f}%)\n  P(|R|≤1%): {p_neg:.1f}%",
-        )
-        ax.step(
-            x,
-            y_pos,
-            where="post",
-            color="#2ca02c",
-            linewidth=2.2,
-            linestyle="-",
-            label=f"Positive (Up {len(pos) / len(data) * 100:.1f}%)\n  P(R≤1%): {p_pos:.1f}%",
-        )
-        ax.fill_between(
-            x,
-            y_neg,
-            y_pos,
-            step="post",
-            alpha=0.15,
-            color="#9467bd",
-            label="Diff (Asymmetry)",
-        )
-        ax.set_title(label, fontsize=11, fontweight="bold")
-        format_cumulative_axis(
-            ax, xmax=6.0, ylabel="Cumulative Probability" if sym == "SP500" else None
-        )
-        ax.legend(frameon=True, fontsize=9.0, loc="lower right")
+    percentage_negative = len(negative_returns) / len(percentage_returns) * 100.0
+    percentage_positive = len(positive_returns) / len(percentage_returns) * 100.0
 
-    fig.suptitle(
-        "Cumulative Daily Movement Probabilities: Absolute and Conditional Asymmetry",
-        fontsize=14,
+    axes_bottom.step(
+        x_negative,
+        y_negative,
+        where="post",
+        color="#d62728",
+        linewidth=2.2,
+        linestyle="--",
+        label=f"Negative (Down {percentage_negative:.1f}% of days)",
+    )
+    axes_bottom.step(
+        x_positive,
+        y_positive,
+        where="post",
+        color="#2ca02c",
+        linewidth=2.2,
+        linestyle="-",
+        label=f"Positive (Up {percentage_positive:.1f}% of days)",
+    )
+    axes_bottom.fill_between(
+        x_negative,
+        y_negative,
+        y_positive,
+        step="post",
+        alpha=0.15,
+        color="#9467bd",
+        label="Asymmetry Difference",
+    )
+    axes_bottom.set_title(
+        f"{ticker.upper()} Conditional Directional Movement Probabilities",
+        fontsize=12,
         fontweight="bold",
     )
-    return save_and_close(
-        fig, figures_dir / "daily_returns_cumulative_probabilities.png"
-    )
+    format_cumulative_axis(axes_bottom, 6.0, "Cumulative Probability")
+    axes_bottom.legend(frameon=True, fontsize=9.5, loc="lower right")
 
-
-def main() -> None:
-    data_dir = PROJECT_ROOT / "data"
-    figures_dir = PROJECT_ROOT / "figures"
-    figures_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"Loading daily return data from {data_dir}...")
-    returns_df = load_daily_returns(data_dir)
-
-    print("Generating daily return distribution figures...")
-    plot_variance_comparison(returns_df, figures_dir)
-    plot_cumulative_movement(returns_df, figures_dir)
+    output_path = output_directory / f"{ticker.lower()}_cumulative_probabilities.png"
+    return save_and_close_figure(figure, output_path)
 
 
 if __name__ == "__main__":
-    main()
+    ticker_name = sys.argv[1].lower()
+    FIGURES_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    input_file_path = DATA_DIRECTORY / f"{ticker_name}_daily.csv"
+    returns_series = load_daily_returns(input_file_path)
+
+    plot_variance_distribution(ticker_name, returns_series, FIGURES_DIRECTORY)
+    plot_cumulative_movement(ticker_name, returns_series, FIGURES_DIRECTORY)
