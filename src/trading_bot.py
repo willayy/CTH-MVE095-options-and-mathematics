@@ -1,5 +1,4 @@
 import argparse
-import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -135,112 +134,64 @@ class TradingBot:
 
 
 def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
-    symbol_environment_value = os.environ.get("TARGET_SYMBOL")
-    exchange_environment_value = os.environ.get("TARGET_EXCHANGE")
-    currency_environment_value = os.environ.get("TARGET_CURRENCY")
-    host_environment_value = os.environ.get("INTERACTIVE_BROKERS_HOST")
-    port_environment_value = os.environ.get("INTERACTIVE_BROKERS_PORT")
-    client_identifier_environment_value = os.environ.get(
-        "INTERACTIVE_BROKERS_CLIENT_ID"
-    )
-    fixed_capital_amount_environment_value = os.environ.get(
-        "FIXED_CAPITAL_AMOUNT_DOLLARS"
-    )
-    credibility_percentage_environment_value = os.environ.get(
-        "CREDIBILITY_INTERVAL_PERCENTAGE"
-    )
-    decay_factor_environment_value = os.environ.get("DECAY_FACTOR")
-    check_interval_environment_value = os.environ.get("CHECK_INTERVAL_SECONDS")
-
     argument_parser = argparse.ArgumentParser(
         description="Automated short straddle options trading bot for a single asset."
     )
     argument_parser.add_argument(
         "symbol",
-        nargs="?" if symbol_environment_value else None,
-        default=symbol_environment_value,
+        type=str,
         help="Target contract symbol (e.g. SPX).",
     )
     argument_parser.add_argument(
         "exchange",
-        nargs="?" if exchange_environment_value else None,
-        default=exchange_environment_value,
+        type=str,
         help="Target contract exchange (e.g. CBOE).",
     )
     argument_parser.add_argument(
         "currency",
-        nargs="?" if currency_environment_value else None,
-        default=currency_environment_value,
+        type=str,
         help="Target contract currency (e.g. USD).",
     )
     argument_parser.add_argument(
         "--host",
-        default=host_environment_value,
-        required=host_environment_value is None,
+        type=str,
+        required=True,
         help="Interactive Brokers Gateway or TWS host address.",
     )
     argument_parser.add_argument(
         "--port",
         type=int,
-        default=(
-            int(port_environment_value) if port_environment_value is not None else None
-        ),
-        required=port_environment_value is None,
+        required=True,
         help="Interactive Brokers Gateway or TWS port number.",
     )
     argument_parser.add_argument(
         "--client-id",
         type=int,
-        default=(
-            int(client_identifier_environment_value)
-            if client_identifier_environment_value is not None
-            else None
-        ),
-        required=client_identifier_environment_value is None,
+        required=True,
         help="Interactive Brokers client identifier.",
     )
     argument_parser.add_argument(
         "--fixed-capital-amount",
         type=float,
-        default=(
-            float(fixed_capital_amount_environment_value)
-            if fixed_capital_amount_environment_value is not None
-            else None
-        ),
-        required=fixed_capital_amount_environment_value is None,
+        required=True,
         help="Fixed capital allocation amount in dollars.",
     )
     argument_parser.add_argument(
         "--credibility-percentage",
         type=float,
-        default=(
-            float(credibility_percentage_environment_value)
-            if credibility_percentage_environment_value is not None
-            else None
-        ),
-        required=credibility_percentage_environment_value is None,
+        required=True,
         help="Credibility interval percentage for Bayesian inference.",
     )
     argument_parser.add_argument(
         "--decay-factor",
         type=float,
-        default=(
-            float(decay_factor_environment_value)
-            if decay_factor_environment_value is not None
-            else None
-        ),
-        required=decay_factor_environment_value is None,
+        required=True,
         help="Exponential sample weight decay factor.",
     )
     argument_parser.add_argument(
         "--check-interval-seconds",
         type=float,
-        default=(
-            float(check_interval_environment_value)
-            if check_interval_environment_value is not None
-            else None
-        ),
-        required=check_interval_environment_value is None,
+        required=True,
         help="Interval in seconds between active position checks.",
     )
     parsed_arguments = argument_parser.parse_args(command_line_arguments)
