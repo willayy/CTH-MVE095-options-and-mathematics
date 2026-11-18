@@ -3,7 +3,7 @@ services:
     image: ghcr.io/gnzsnz/ib-gateway:stable
     restart: always
     env_file:
-      - .env
+      - ../.env
     environment:
       TWS_USERID: ${TWS_USERID}
       TWS_PASSWORD: ${TWS_PASSWORD}
@@ -21,8 +21,6 @@ services:
     restart: always
     depends_on:
       - ib-gateway
-    env_file:
-      - .env
     environment:
       TZ: UTC
     command: [
@@ -44,8 +42,6 @@ services:
     restart: always
     depends_on:
       - ib-gateway
-    env_file:
-      - .env
     environment:
       TZ: UTC
     command: [
