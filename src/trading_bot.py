@@ -20,9 +20,9 @@ def main(
     host_address: str,
     port_number: int,
     client_identifier: int,
+    fixed_capital_amount_dollars: float,
     credibility_interval_percentage: float,
     decay_factor: float,
-    capital_investment_percentage: float,
     check_interval_seconds: float,
     maximum_checks: int,
 ) -> None:
@@ -38,7 +38,7 @@ def main(
         )
 
         call_contract, put_contract, order_quantity = client.create_straddle(
-            symbol, exchange, currency, capital_investment_percentage
+            symbol, exchange, currency, fixed_capital_amount_dollars
         )
 
         active_positions.append(
@@ -91,11 +91,11 @@ if __name__ == "__main__":
     host_address_value = os.environ.get("INTERACTIVE_BROKERS_HOST", "127.0.0.1")
     port_number_value = int(os.environ.get("INTERACTIVE_BROKERS_PORT", "7497"))
     client_identifier_value = int(os.environ.get("INTERACTIVE_BROKERS_CLIENT_ID", "10"))
+    fixed_capital_amount_value = float(
+        os.environ.get("FIXED_CAPITAL_AMOUNT_DOLLARS", "10000.0")
+    )
     credibility_percentage_value = float(
         os.environ.get("CREDIBILITY_INTERVAL_PERCENTAGE", "0.95")
-    )
-    capital_investment_percentage_value = float(
-        os.environ.get("CAPITAL_INVESTMENT_PERCENTAGE", "0.05")
     )
 
     targets = DEFAULT_TARGET_SPECIFICATIONS
@@ -104,16 +104,16 @@ if __name__ == "__main__":
         if len(sys.argv) > 4:
             credibility_percentage_value = float(sys.argv[4])
         if len(sys.argv) > 5:
-            capital_investment_percentage_value = float(sys.argv[5])
+            fixed_capital_amount_value = float(sys.argv[5])
 
     main(
         targets,
         host_address_value,
         port_number_value,
         client_identifier_value,
+        fixed_capital_amount_value,
         credibility_percentage_value,
         0.995,
-        capital_investment_percentage_value,
         5.0,
         100,
     )
