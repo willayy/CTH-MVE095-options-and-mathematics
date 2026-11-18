@@ -122,14 +122,18 @@ def bayesian_inference(
     return posterior(0.0, weighted_returns)
 
 
-if __name__ == "__main__":
+def main() -> None:
     ticker = sys.argv[1].upper()
     coverage_probability_value = 0.95
     decay_factor_value = 0.995
     precision_posterior = bayesian_inference(ticker, decay_factor_value)
     file_path = DATA_DIRECTORY / f"{ticker.lower()}_daily.csv"
     last_price = load_last_price(file_path)
-    interval = critical_price_interval(
+    final_interval = critical_price_interval(
         last_price, 0.0, precision_posterior, coverage_probability_value
     )
-    print(interval)
+    print(final_interval)
+
+
+if __name__ == "__main__":
+    main()
