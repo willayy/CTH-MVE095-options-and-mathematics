@@ -10,12 +10,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.trading_bot import Position, TradingBot, parse_arguments
+from src.trading_bot import (
+    Position,
+    TradingBot,
+    parse_arguments,
+    parse_target_specifications,
+)
 
 
 def test_trading_bot_holds_position_until_maturity_when_price_in_bounds() -> None:
     bot = TradingBot(
-        [("SPX", "CBOE", "USD")],
+        [("SPX", "CBOE", "USD", 5000.0)],
         "127.0.0.1",
         7497,
         10,
@@ -35,10 +40,15 @@ def test_trading_bot_holds_position_until_maturity_when_price_in_bounds() -> Non
     with (
         patch.object(bot, "is_maturity_within_check_window", return_value=True),
         patch("src.trading_bot.bayesian_inference", return_value=MagicMock()),
-        patch("src.trading_bot.critical_price_interval", return_value=(4900.0, 5100.0)),
+        patch(
+            "src.trading_bot.critical_price_interval", return_value=(4900.0, 5100.0)
+        ) as mock_critical_interval,
     ):
         bot.open_new_positions()
 
+        mock_critical_interval.assert_called_once_with(
+            5000.0, 0.0, mock_critical_interval.call_args[0][2], 0.95
+        )
         assert len(bot.active_positions) == 1
         position = bot.active_positions[0]
         assert position.symbol == "SPX"
@@ -58,7 +68,7 @@ def test_trading_bot_neutralizes_and_reopens_position_when_price_breaks_interval
     None
 ):
     bot = TradingBot(
-        [("SPX", "CBOE", "USD")],
+        [("SPX", "CBOE", "USD", 5000.0)],
         "127.0.0.1",
         7497,
         10,
@@ -114,7 +124,7 @@ def test_trading_bot_neutralizes_and_reopens_position_when_price_breaks_interval
 
 def test_trading_bot_run_loop_with_three_second_sleep_and_lifecycle() -> None:
     bot = TradingBot(
-        [("SPX", "CBOE", "USD")],
+        [("SPX", "CBOE", "USD", 5000.0)],
         "127.0.0.1",
         7497,
         10,
@@ -140,7 +150,7 @@ def test_trading_bot_run_loop_with_three_second_sleep_and_lifecycle() -> None:
         (reopened_call_contract, reopened_put_contract, 2),
     ]
 
-    bot.client.get_current_price.side_effect = [5000.0, 5150.0, 5200.0]
+    bot.client.get_current_price.side_effect = [5150.0, 5200.0]
 
     iteration_counter = {"count": 0}
 
@@ -177,7 +187,7 @@ def test_trading_bot_run_loop_with_three_second_sleep_and_lifecycle() -> None:
 
 def test_trading_bot_is_maturity_within_check_window() -> None:
     bot = TradingBot(
-        [("SPX", "CBOE", "USD")],
+        [("SPX", "CBOE", "USD", 5000.0)],
         "127.0.0.1",
         7497,
         10,
@@ -201,7 +211,7 @@ def test_trading_bot_is_maturity_within_check_window() -> None:
         assert bot.is_maturity_within_check_window("20261120") is False
 
 
-def test_parse_arguments_converts_targets_to_triplets() -> None:
+def test_parse_arguments_converts_targets_to_quadruplets() -> None:
     arguments = [
         "--host",
         "127.0.0.1",
@@ -220,17 +230,22 @@ def test_parse_arguments_converts_targets_to_triplets() -> None:
         "SPX",
         "CBOE",
         "USD",
+        "5000.0",
         "DJ600",
         "EUREX",
         "EUR",
+        "500.0",
     ]
     parsed = parse_arguments(arguments)
-    assert parsed.targets == [("SPX", "CBOE", "USD"), ("DJ600", "EUREX", "EUR")]
+    assert parsed.targets == [
+        ("SPX", "CBOE", "USD", 5000.0),
+        ("DJ600", "EUREX", "EUR", 500.0),
+    ]
     assert parsed.host == "127.0.0.1"
     assert parsed.port == 7497
 
 
-def test_parse_arguments_rejects_incomplete_target_triplet() -> None:
+def test_parse_arguments_rejects_incomplete_target_quadruplet() -> None:
     arguments = [
         "--host",
         "127.0.0.1",
@@ -248,8 +263,9 @@ def test_parse_arguments_rejects_incomplete_target_triplet() -> None:
         "3.0",
         "SPX",
         "CBOE",
+        "USD",
     ]
     with pytest.raises(
-        ValueError, match="Target specifications must be provided in triplets"
+        ValueError, match="Target specifications must be provided in quadruplets"
     ):
         parse_arguments(arguments)
