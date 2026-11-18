@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -55,13 +56,23 @@ def main(
 
 
 if __name__ == "__main__":
+    host_address = os.environ.get("INTERACTIVE_BROKERS_HOST", "127.0.0.1")
+    port_number = int(os.environ.get("INTERACTIVE_BROKERS_PORT", "7497"))
+    client_identifier = int(os.environ.get("INTERACTIVE_BROKERS_CLIENT_ID", "10"))
+    if len(sys.argv) > 4:
+        host_address = sys.argv[4]
+    if len(sys.argv) > 5:
+        port_number = int(sys.argv[5])
+    if len(sys.argv) > 6:
+        client_identifier = int(sys.argv[6])
+
     main(
         sys.argv[1].upper(),
         sys.argv[2].upper(),
         sys.argv[3].upper(),
-        "127.0.0.1",
-        7497,
-        10,
+        host_address,
+        port_number,
+        client_identifier,
         0.95,
         0.995,
         1,
