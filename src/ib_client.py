@@ -38,7 +38,9 @@ class InteractiveBrokersClient:
         for item in self.interactive_brokers.accountValues():
             if item.tag == "NetLiquidation":
                 return float(item.value)
-        return 100000.0
+        raise RuntimeError(
+            "Failed to retrieve NetLiquidation value from Interactive Brokers account."
+        )
 
     def calculate_order_quantity(
         self,
@@ -50,7 +52,9 @@ class InteractiveBrokersClient:
         allocated_capital = total_capital * capital_investment_percentage
         contract_notional_value = strike_price * contract_multiplier
         if contract_notional_value <= 0.0:
-            return 1
+            raise ValueError(
+                f"Contract notional value must be positive, got {contract_notional_value}."
+            )
         calculated_quantity = int(allocated_capital / contract_notional_value)
         return max(1, calculated_quantity)
 
