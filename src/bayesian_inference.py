@@ -81,7 +81,6 @@ def critical_price_interval(
     """Gets the critical values of the credibility interval such that, given the initial price, there is a coverage_probability probability of the price staying within the interval."""
     tail_probability = (1.0 - coverage_probability) / 2.0
 
-    # Assuming that 20% is the max amount that is possible to observe is very fair
     lower_search_bound = -0.2
     upper_search_bound = 0.20
 
@@ -105,28 +104,32 @@ def critical_price_interval(
     )
 
 
+def load_last_price(file_path: Path | str) -> float:
+    data_frame = pd.read_csv(Path(file_path), usecols=["close"])
+    return float(data_frame["close"].iloc[-1])
+
+
 def bayesian_inference(
     symbol: str,
-    coverage_probability: float,
     decay_factor: float,
-) -> tuple[float, float]:
+) -> stats.rv_continuous:
     file_path = DATA_DIRECTORY / f"{symbol.lower()}_daily.csv"
     returns = load_daily_returns(file_path).dropna().values
-    data_frame = pd.read_csv(file_path, usecols=["close"])
-    last_price = float(data_frame["close"].iloc[-1])
 
     weights = compute_exponential_weights(len(returns), decay_factor)
     normalized_weights = weights * len(returns) / np.sum(weights)
     weighted_returns = returns * np.sqrt(normalized_weights)
-    precision_posterior = posterior(0.0, weighted_returns)
-
-    return critical_price_interval(
-        last_price, 0.0, precision_posterior, coverage_probability
-    )
+    return posterior(0.0, weighted_returns)
 
 
 if __name__ == "__main__":
     ticker = sys.argv[1].upper()
     coverage_probability_value = 0.95
     decay_factor_value = 0.995
-    print(bayesian_inference(ticker, coverage_probability_value, decay_factor_value))
+    precision_posterior = bayesian_inference(ticker, decay_factor_value)
+    file_path = DATA_DIRECTORY / f"{ticker.lower()}_daily.csv"
+    last_price = load_last_price(file_path)
+    interval = critical_price_interval(
+        last_price, 0.0, precision_posterior, coverage_probability_value
+    )
+    print(interval)
