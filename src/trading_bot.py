@@ -236,12 +236,9 @@ def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
         required=check_interval_environment_value is None,
         help="Interval in seconds between active position checks.",
     )
-    return argument_parser.parse_args(command_line_arguments)
+    parsed_arguments = argument_parser.parse_args(command_line_arguments)
 
-
-def parse_target_specifications(
-    raw_targets: list[str],
-) -> list[tuple[str, str, str]]:
+    raw_targets = parsed_arguments.targets
     target_specifications: list[tuple[str, str, str]] = []
     if raw_targets:
         if len(raw_targets) % 3 != 0:
@@ -256,28 +253,27 @@ def parse_target_specifications(
                     raw_targets[index + 2].upper(),
                 )
             )
-    else:
-        environment_targets = os.environ.get("TARGET_SPECIFICATIONS")
-        if environment_targets:
-            for entry in environment_targets.split(","):
-                parts = entry.strip().split(":")
-                if len(parts) == 3:
-                    target_specifications.append(
-                        (parts[0].upper(), parts[1].upper(), parts[2].upper())
-                    )
+    elif targets_environment_value:
+        for entry in targets_environment_value.split(","):
+            parts = entry.strip().split(":")
+            if len(parts) == 3:
+                target_specifications.append(
+                    (parts[0].upper(), parts[1].upper(), parts[2].upper())
+                )
     if not target_specifications:
         raise ValueError(
             "No target specifications provided. Pass contract specifications as command line arguments or via TARGET_SPECIFICATIONS environment variable."
         )
-    return target_specifications
+
+    parsed_arguments.targets = target_specifications
+    return parsed_arguments
 
 
-if __name__ == "__main__":
+def main() -> None:
     parsed_arguments = parse_arguments(sys.argv[1:])
-    target_specifications = parse_target_specifications(parsed_arguments.targets)
 
     bot = TradingBot(
-        target_specifications,
+        parsed_arguments.targets,
         parsed_arguments.host,
         parsed_arguments.port,
         parsed_arguments.client_id,
@@ -287,3 +283,7 @@ if __name__ == "__main__":
         parsed_arguments.check_interval_seconds,
     )
     bot.run()
+
+
+if __name__ == "__main__":
+    main()
