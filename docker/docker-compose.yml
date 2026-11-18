@@ -1,0 +1,28 @@
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: always
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      READ_ONLY_API: "no"
+      RESTART_TIME: "23:55"
+    ports:
+      - "127.0.0.1:4002:4002"
+      - "127.0.0.1:4001:4001"
+
+  trading-bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: always
+    depends_on:
+      - ib-gateway
+    environment:
+      INTERACTIVE_BROKERS_HOST: ib-gateway
+      INTERACTIVE_BROKERS_PORT: ${INTERACTIVE_BROKERS_PORT:-4002}
+      INTERACTIVE_BROKERS_CLIENT_ID: ${INTERACTIVE_BROKERS_CLIENT_ID:-10}
+      TZ: UTC
+    volumes:
+      - ../data:/app/data
