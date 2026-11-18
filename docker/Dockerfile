@@ -15,4 +15,4 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["python", "src/trading_bot.py", "SPX", "CBOE", "USD", "DJ600", "EUREX", "EUR"]
+CMD ["python", "src/trading_bot.py", "--host", "ib-gateway", "--port", "4002", "--client-id", "10", "--fixed-capital-amount", "10000.0", "--credibility-percentage", "0.95", "--decay-factor", "0.995", "--check-interval-seconds", "5.0", "SPX", "CBOE", "USD", "DJ600", "EUREX", "EUR"]
