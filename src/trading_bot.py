@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 from dataclasses import dataclass
@@ -134,53 +135,104 @@ class TradingBot:
             self.open_new_positions()
 
 
-def parse_target_specifications() -> list[tuple[str, str, str]]:
-    targets: list[tuple[str, str, str]] = []
-    environment_targets = os.environ.get("TARGET_SPECIFICATIONS")
-    if environment_targets:
-        for entry in environment_targets.split(","):
-            parts = entry.strip().split(":")
-            if len(parts) == 3:
-                targets.append((parts[0].upper(), parts[1].upper(), parts[2].upper()))
-    if len(sys.argv) >= 4:
-        argument_index = 1
-        while argument_index + 2 < len(sys.argv):
-            targets.append(
+def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
+    argument_parser = argparse.ArgumentParser(
+        description="Automated short straddle options trading bot."
+    )
+    argument_parser.add_argument(
+        "targets",
+        nargs="*",
+        help="Target contract specifications as triplets: SYMBOL EXCHANGE CURRENCY ...",
+    )
+    argument_parser.add_argument(
+        "--host",
+        default=os.environ.get("INTERACTIVE_BROKERS_HOST", "127.0.0.1"),
+        help="Interactive Brokers Gateway or TWS host address.",
+    )
+    argument_parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("INTERACTIVE_BROKERS_PORT", "7497")),
+        help="Interactive Brokers Gateway or TWS port number.",
+    )
+    argument_parser.add_argument(
+        "--client-id",
+        type=int,
+        default=int(os.environ.get("INTERACTIVE_BROKERS_CLIENT_ID", "10")),
+        help="Interactive Brokers client identifier.",
+    )
+    argument_parser.add_argument(
+        "--fixed-capital-amount",
+        type=float,
+        default=float(os.environ.get("FIXED_CAPITAL_AMOUNT_DOLLARS", "10000.0")),
+        help="Fixed capital allocation amount in dollars.",
+    )
+    argument_parser.add_argument(
+        "--credibility-percentage",
+        type=float,
+        default=float(os.environ.get("CREDIBILITY_INTERVAL_PERCENTAGE", "0.95")),
+        help="Credibility interval percentage for Bayesian inference.",
+    )
+    argument_parser.add_argument(
+        "--decay-factor",
+        type=float,
+        default=0.995,
+        help="Exponential sample weight decay factor.",
+    )
+    argument_parser.add_argument(
+        "--check-interval",
+        type=float,
+        default=5.0,
+        help="Interval in seconds between active position checks.",
+    )
+    return argument_parser.parse_args(command_line_arguments)
+
+
+def parse_target_specifications(
+    raw_targets: list[str],
+) -> list[tuple[str, str, str]]:
+    target_specifications: list[tuple[str, str, str]] = []
+    if raw_targets:
+        if len(raw_targets) % 3 != 0:
+            raise ValueError(
+                "Target specifications must be provided in triplets of SYMBOL EXCHANGE CURRENCY."
+            )
+        for index in range(0, len(raw_targets), 3):
+            target_specifications.append(
                 (
-                    sys.argv[argument_index].upper(),
-                    sys.argv[argument_index + 1].upper(),
-                    sys.argv[argument_index + 2].upper(),
+                    raw_targets[index].upper(),
+                    raw_targets[index + 1].upper(),
+                    raw_targets[index + 2].upper(),
                 )
             )
-            argument_index += 3
-    if not targets:
+    else:
+        environment_targets = os.environ.get("TARGET_SPECIFICATIONS")
+        if environment_targets:
+            for entry in environment_targets.split(","):
+                parts = entry.strip().split(":")
+                if len(parts) == 3:
+                    target_specifications.append(
+                        (parts[0].upper(), parts[1].upper(), parts[2].upper())
+                    )
+    if not target_specifications:
         raise ValueError(
             "No target specifications provided. Pass contract specifications as command line arguments or via TARGET_SPECIFICATIONS environment variable."
         )
-    return targets
+    return target_specifications
 
 
 if __name__ == "__main__":
-    host_address_value = os.environ.get("INTERACTIVE_BROKERS_HOST", "127.0.0.1")
-    port_number_value = int(os.environ.get("INTERACTIVE_BROKERS_PORT", "7497"))
-    client_identifier_value = int(os.environ.get("INTERACTIVE_BROKERS_CLIENT_ID", "10"))
-    fixed_capital_amount_value = float(
-        os.environ.get("FIXED_CAPITAL_AMOUNT_DOLLARS", "10000.0")
-    )
-    credibility_percentage_value = float(
-        os.environ.get("CREDIBILITY_INTERVAL_PERCENTAGE", "0.95")
-    )
-
-    targets = parse_target_specifications()
+    parsed_arguments = parse_arguments(sys.argv[1:])
+    target_specifications = parse_target_specifications(parsed_arguments.targets)
 
     bot = TradingBot(
-        targets,
-        host_address_value,
-        port_number_value,
-        client_identifier_value,
-        fixed_capital_amount_value,
-        credibility_percentage_value,
-        0.995,
-        5.0,
+        target_specifications,
+        parsed_arguments.host,
+        parsed_arguments.port,
+        parsed_arguments.client_id,
+        parsed_arguments.fixed_capital_amount,
+        parsed_arguments.credibility_percentage,
+        parsed_arguments.decay_factor,
+        parsed_arguments.check_interval,
     )
     bot.run()
