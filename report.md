@@ -18,20 +18,22 @@ Corporate action artifacts such as stock splits and ex-dividend jumps do not aff
 
 Data 10 years ago is worth less than data 10 days ago
 
-### Model daily change
-
-Model the daily change of the underlying asset price as a gaussian, assume that mean is 0,
-
 ### Model sigma
 
-Learn sigma using bayesian inference
+Infer $\sigma$ using Bayesian inference with an uninformative prior $p(\sigma) \propto \frac{1}{\sigma}$ (equivalently $\log p(\sigma) = -\log \sigma$) to let the empirical return data dominate.
 
 ### Hierarchical model
 
 Combine the learned sigma with the gaussian to create a hierarchical model for the distribution of the underlying asset price change.
 
+The mean will assumed to be 0 as an extension of the assumption that (especially given the short timefram) the price moving up is as likely as the price moving down by some amount $x$.
+
+We compute the resulting compound hierarchical density directly via numerical integration over the distribution of $\sigma$.
+
 ### Derive strategy
 
-Using this model we want to derive a price range of high probability, i then want to use a Short straddle to profit of this range, if the price breaks the range we will neutralize the position by buying or selling the underlying asset.
+Using this model we want to derive a price range of high probability, i then want to use a Short straddle to profit of this range,
+
+If the price breaks the range we will neutralize the position by buying or selling the underlying asset. In this case we avoid the unlimited loss risk.
 
 The underlying assumption here is that this method has a better measure of volatility than the market while simultaneously managing risk by neutralizing position if the bad event occurs.
