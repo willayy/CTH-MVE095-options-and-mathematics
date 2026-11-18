@@ -1,7 +1,7 @@
 import argparse
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from ib_async import Option
@@ -167,14 +167,23 @@ class TradingBot:
             expiration_datetime = datetime.strptime(
                 nearest_expiration, "%Y%m%d"
             ).replace(hour=16, minute=0, second=0)
-            hours_until_expiration = (
-                expiration_datetime - datetime.now()
-            ).total_seconds() / 3600.0
+            target_entry_datetime = expiration_datetime - timedelta(hours=24)
+            now = datetime.now()
+            if (expiration_datetime - now).total_seconds() < (
+                24.0 * 3600.0 - self.check_interval_seconds
+            ):
+                next_entry_datetime = target_entry_datetime + timedelta(days=1)
+            else:
+                next_entry_datetime = target_entry_datetime
+            hours_until_entry = max(
+                0.0, (next_entry_datetime - now).total_seconds() / 3600.0
+            )
+            next_entry_string = next_entry_datetime.strftime("%Y-%m-%d 16:00")
             print(
                 f"[{current_time_string}] [{self.symbol} PING] "
                 f"No position open | "
                 f"Spot: {current_price:.2f} {self.currency} | "
-                f"Next Expiration: {nearest_expiration} 16:00 ({hours_until_expiration:.1f}h)",
+                f"Next Entry: {next_entry_string} (in {hours_until_entry:.1f}h)",
                 flush=True,
             )
 
