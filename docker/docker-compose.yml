@@ -28,3 +28,4 @@ services:
       INTERACTIVE_BROKERS_PORT: ${INTERACTIVE_BROKERS_PORT:-4002}
       INTERACTIVE_BROKERS_CLIENT_ID: ${INTERACTIVE_BROKERS_CLIENT_ID:-10}
       TZ: UTC
+    command: ["python", "src/trading_bot.py", "SPX", "CBOE", "USD"]
