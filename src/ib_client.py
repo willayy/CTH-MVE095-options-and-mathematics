@@ -67,11 +67,29 @@ class InteractiveBrokersClient:
             current_price = market_data.close
         return float(current_price)
 
+    def get_nearest_expiration(
+        self,
+        symbol: str,
+        exchange: str,
+        currency: str,
+    ) -> str:
+        underlying_contract = Index(symbol, exchange, currency)
+        self.interactive_brokers.qualifyContracts(underlying_contract)
+        chains = self.interactive_brokers.reqSecDefOptParams(
+            underlying_contract.symbol,
+            "",
+            underlying_contract.secType,
+            underlying_contract.conId,
+        )
+        selected_chain = chains[0]
+        return min(selected_chain.expirations)
+
     def create_straddle(
         self,
         symbol: str,
         exchange: str,
         currency: str,
+        expiration_date_string: str,
         fixed_capital_amount_dollars: float,
     ) -> tuple[Option, Option, int]:
         underlying_contract = Index(symbol, exchange, currency)
@@ -83,7 +101,6 @@ class InteractiveBrokersClient:
             underlying_contract.conId,
         )
         selected_chain = chains[0]
-        nearest_expiration = min(selected_chain.expirations)
 
         market_data = self.interactive_brokers.reqMktData(
             underlying_contract, "", False, False
@@ -100,7 +117,7 @@ class InteractiveBrokersClient:
 
         call_contract = Option(
             underlying_contract.symbol,
-            nearest_expiration,
+            expiration_date_string,
             closest_strike,
             "C",
             selected_chain.exchange,
@@ -108,7 +125,7 @@ class InteractiveBrokersClient:
         )
         put_contract = Option(
             underlying_contract.symbol,
-            nearest_expiration,
+            expiration_date_string,
             closest_strike,
             "P",
             selected_chain.exchange,
