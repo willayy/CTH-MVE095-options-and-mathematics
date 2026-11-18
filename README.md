@@ -1,61 +1,85 @@
 # Options and Mathematics (MVE095)
 
-This repository contains code for deriving an options trading strategy on the broker platform Interactive Brokers.
+Automated options trading system for 1-day maturity European short straddles (`SPX`, `DJ600`) on Interactive Brokers, using Bayesian inference.
 
-## Setup
+---
 
-Activate the Python virtual environment:
+## Quick Start: Running the Trading Bot
 
-```zsh
-source .venv/bin/activate
+### 1. Configure Credentials
+
+Create a `.env` file at the repository root:
+
+```bash
+cp .env.example .env
 ```
 
-Ensure Trader Workstation (TWS) or IB Gateway is running with API socket connections enabled (port `7497` for paper trading).
+Edit `.env` and set your Interactive Brokers credentials:
 
-## Usage & Execution
-
-Run the scripts in order:
-
-### 1. Check TWS Connection
-
-Verify socket connectivity and account data:
-
-```zsh
-python src/check_tws_connection.py
+```env
+TWS_USERID=your_ibkr_username
+TWS_PASSWORD=your_ibkr_password
+TRADING_MODE=paper
 ```
 
-### 2. Fetch Daily Index Market Data (10 Years)
+### 2. Run with Docker (Recommended)
 
-Downloads 10 years of daily HLOC historical bars for the S&P 500 (`SPX`) and STOXX Europe 600 (`DJ600`) indices directly from TWS:
+Start the full stack (IB Gateway + SPX Bot + DJ600 Bot):
 
-```zsh
-python src/get_data.py
+```bash
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-Outputs:
+### 3. Monitor Logs
 
-- `./data/sp500_daily.csv`: 10 years of daily bars for S&P 500 (`SPX`, ~2,511 trading days)
-- `./data/stoxx600_daily.csv`: 10 years of daily bars for STOXX Europe 600 (`DJ600`, ~2,546 trading days)
+View real-time ping updates and trading events:
 
-All data files in `./data/` are gitignored.
-
-### 3. Bayesian Inference
-
-Loads the daily HLOC data and computes open-to-close returns across the indices:
-
-```zsh
-python src/bayesian_inference.py
+```bash
+docker compose -f docker/docker-compose.yml logs -f
 ```
 
-### 4. Generate Return Distribution Figures
+### 4. Stop the Bot
 
-Generates variance and cumulative movement distribution figures to `./figures/`:
-
-```zsh
-python src/figures.py
+```bash
+docker compose -f docker/docker-compose.yml down
 ```
 
-The script outputs threetwo comprehensive 3-panel figures into `./figures/`:
+---
 
-- `daily_returns_variance_comparison.png`: 3-panel figure with side-by-side bucket histograms for S&P 500 and STOXX Europe 600 (top) and their overlaid frequency step distribution (bottom).
-- `daily_returns_cumulative_probabilities.png`: 3-panel figure with the cumulative probability of daily absolute movement $P(|R| \le x)$ across both indices (top) and conditional negative vs. positive movement distributions $P(|R| \le x \mid R < 0)$ vs. $P(R \le x \mid R > 0)$ for each index (bottom).
+## Running Locally without Docker
+
+1. **Start TWS or IB Gateway** on your local machine with API socket connections enabled (e.g. port `7497` for paper trading).
+2. **Activate the virtual environment**:
+   ```bash
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+3. **Launch the bot** for a target asset:
+   ```bash
+   # SPX on CBOE
+   python src/trading_bot.py SPX CBOE USD --host 127.0.0.1 --port 7497 --client-id 10 --fixed-capital-amount 10000.0 --credibility-percentage 0.95 --decay-factor 0.995 --check-interval-seconds 30.0
+
+   # DJ600 on EUREX
+   python src/trading_bot.py DJ600 EUREX EUR --host 127.0.0.1 --port 7497 --client-id 11 --fixed-capital-amount 10000.0 --credibility-percentage 0.95 --decay-factor 0.995 --check-interval-seconds 30.0
+   ```
+
+---
+
+## Research & Data Scripts
+
+1. **Verify TWS Connection**:
+   ```bash
+   python src/check_tws_connection.py
+   ```
+2. **Fetch 10-Year Historical Data**:
+   ```bash
+   python src/get_data.py
+   ```
+3. **Run Bayesian Inference**:
+   ```bash
+   python src/bayesian_inference.py
+   ```
+4. **Generate Figures**:
+   ```bash
+   python src/figures.py
+   ```
