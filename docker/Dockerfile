@@ -15,4 +15,4 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["python", "docker/scheduler.py"]
+CMD ["python", "src/trading_bot.py", "SPX", "CBOE", "USD"]
