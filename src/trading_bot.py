@@ -30,7 +30,7 @@ class Position:
 class TradingBot:
     def __init__(
         self,
-        target_specifications: list[tuple[str, str, str]],
+        target_specifications: list[tuple[str, str, str, float]],
         host_address: str,
         port_number: int,
         client_identifier: int,
@@ -93,7 +93,7 @@ class TradingBot:
 
     def open_new_positions(self) -> None:
         active_symbols = {position.symbol for position in self.active_positions}
-        for symbol, exchange, currency in self.target_specifications:
+        for symbol, exchange, currency, user_price in self.target_specifications:
             if symbol in active_symbols:
                 continue
 
@@ -102,12 +102,9 @@ class TradingBot:
             )
             if self.is_maturity_within_check_window(nearest_expiration):
                 self.client.download_data(symbol, exchange, currency)
-                current_price = self.client.get_current_price(
-                    symbol, exchange, currency
-                )
                 precision_posterior = bayesian_inference(symbol, self.decay_factor)
                 lower_price, upper_price = critical_price_interval(
-                    current_price,
+                    user_price,
                     0.0,
                     precision_posterior,
                     self.credibility_interval_percentage,
@@ -142,6 +139,45 @@ class TradingBot:
             self.open_new_positions()
 
 
+def parse_target_specifications(
+    raw_targets: list[str],
+) -> list[tuple[str, str, str, float]]:
+    target_specifications: list[tuple[str, str, str, float]] = []
+    if raw_targets:
+        if len(raw_targets) % 4 != 0:
+            raise ValueError(
+                "Target specifications must be provided in quadruplets of SYMBOL EXCHANGE CURRENCY PRICE."
+            )
+        for index in range(0, len(raw_targets), 4):
+            target_specifications.append(
+                (
+                    raw_targets[index].upper(),
+                    raw_targets[index + 1].upper(),
+                    raw_targets[index + 2].upper(),
+                    float(raw_targets[index + 3]),
+                )
+            )
+    else:
+        environment_targets = os.environ.get("TARGET_SPECIFICATIONS")
+        if environment_targets:
+            for entry in environment_targets.split(","):
+                parts = entry.strip().split(":")
+                if len(parts) == 4:
+                    target_specifications.append(
+                        (
+                            parts[0].upper(),
+                            parts[1].upper(),
+                            parts[2].upper(),
+                            float(parts[3]),
+                        )
+                    )
+    if not target_specifications:
+        raise ValueError(
+            "No target specifications provided. Pass contract specifications as command line arguments or via TARGET_SPECIFICATIONS environment variable."
+        )
+    return target_specifications
+
+
 def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
     host_environment_value = os.environ.get("INTERACTIVE_BROKERS_HOST")
     port_environment_value = os.environ.get("INTERACTIVE_BROKERS_PORT")
@@ -164,7 +200,7 @@ def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
     argument_parser.add_argument(
         "targets",
         nargs="*" if targets_environment_value else "+",
-        help="Target contract specifications as triplets: SYMBOL EXCHANGE CURRENCY ...",
+        help="Target contract specifications as quadruplets: SYMBOL EXCHANGE CURRENCY PRICE ...",
     )
     argument_parser.add_argument(
         "--host",
@@ -237,35 +273,7 @@ def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
         help="Interval in seconds between active position checks.",
     )
     parsed_arguments = argument_parser.parse_args(command_line_arguments)
-
-    raw_targets = parsed_arguments.targets
-    target_specifications: list[tuple[str, str, str]] = []
-    if raw_targets:
-        if len(raw_targets) % 3 != 0:
-            raise ValueError(
-                "Target specifications must be provided in triplets of SYMBOL EXCHANGE CURRENCY."
-            )
-        for index in range(0, len(raw_targets), 3):
-            target_specifications.append(
-                (
-                    raw_targets[index].upper(),
-                    raw_targets[index + 1].upper(),
-                    raw_targets[index + 2].upper(),
-                )
-            )
-    elif targets_environment_value:
-        for entry in targets_environment_value.split(","):
-            parts = entry.strip().split(":")
-            if len(parts) == 3:
-                target_specifications.append(
-                    (parts[0].upper(), parts[1].upper(), parts[2].upper())
-                )
-    if not target_specifications:
-        raise ValueError(
-            "No target specifications provided. Pass contract specifications as command line arguments or via TARGET_SPECIFICATIONS environment variable."
-        )
-
-    parsed_arguments.targets = target_specifications
+    parsed_arguments.targets = parse_target_specifications(parsed_arguments.targets)
     return parsed_arguments
 
 
