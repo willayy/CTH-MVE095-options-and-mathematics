@@ -56,6 +56,8 @@ def test_trading_bot_opens_position_when_it_should() -> None:
         assert bot.active_position.call_contract == call_contract
         assert bot.active_position.put_contract == put_contract
         assert bot.active_position.order_quantity == 2
+        assert bot.active_position.maturity == "20261119 16:00"
+        assert bot.active_position.start_time is not None
 
 
 def test_trading_bot_neutralizes_when_it_should() -> None:
@@ -83,6 +85,8 @@ def test_trading_bot_neutralizes_when_it_should() -> None:
         call_contract,
         put_contract,
         2,
+        "2026-11-18 16:00:00",
+        "20261119 16:00",
     )
 
     bot.client.get_current_price.return_value = 5150.0
@@ -134,6 +138,8 @@ def test_trading_bot_opens_position_again() -> None:
         assert bot.active_position.call_contract == call_contract
         assert bot.active_position.put_contract == put_contract
         assert bot.active_position.order_quantity == 2
+        assert bot.active_position.maturity == "20261119 16:00"
+        assert bot.active_position.start_time is not None
 
 
 def test_trading_bot_keeps_position_until_maturity() -> None:
@@ -161,6 +167,8 @@ def test_trading_bot_keeps_position_until_maturity() -> None:
         call_contract,
         put_contract,
         2,
+        "2026-11-18 16:00:00",
+        "20261119 16:00",
     )
 
     bot.client.get_current_price.return_value = 5020.0

@@ -24,6 +24,8 @@ class Position:
     call_contract: Option
     put_contract: Option
     order_quantity: int
+    start_time: str
+    maturity: str
 
 
 class TradingBot:
@@ -83,7 +85,7 @@ class TradingBot:
             or current_price > self.active_position.upper_price
         ):
             print(
-                f"[{datetime.now()}] Neutralizing straddle on {self.symbol}: price {current_price:.2f} exited critical interval [{self.active_position.lower_price:.2f}, {self.active_position.upper_price:.2f}].",
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Neutralizing straddle on {self.symbol}: price {current_price:.2f} exited critical interval [{self.active_position.lower_price:.2f}, {self.active_position.upper_price:.2f}].",
                 flush=True,
             )
             self.client.neutralize_straddle(
@@ -118,8 +120,10 @@ class TradingBot:
                 nearest_expiration,
                 self.fixed_capital_amount_dollars,
             )
+            entry_time_string = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            maturity_string = f"{nearest_expiration} 16:00"
             print(
-                f"[{datetime.now()}] Opened straddle on {self.symbol} (expiration: {nearest_expiration}, lower: {lower_price:.2f}, upper: {upper_price:.2f}, quantity: {order_quantity}).",
+                f"[{entry_time_string}] Opened straddle on {self.symbol} (expiration: {nearest_expiration}, lower: {lower_price:.2f}, upper: {upper_price:.2f}, quantity: {order_quantity}).",
                 flush=True,
             )
             self.active_position = Position(
@@ -131,18 +135,61 @@ class TradingBot:
                 call_contract,
                 put_contract,
                 order_quantity,
+                entry_time_string,
+                maturity_string,
+            )
+
+    def log_interval_status(self) -> None:
+        current_time_string = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_price = self.client.get_current_price(
+            self.symbol, self.exchange, self.currency
+        )
+        if self.active_position is not None:
+            position_pnl = self.client.get_position_pnl(
+                self.active_position.call_contract,
+                self.active_position.put_contract,
+            )
+            pnl_sign = "+" if position_pnl >= 0 else ""
+            print(
+                f"[{current_time_string}] [{self.symbol} PING] "
+                f"Spot: {current_price:.2f} {self.currency} | "
+                f"P/L: {pnl_sign}{position_pnl:.2f} {self.currency} | "
+                f"Start: {self.active_position.start_time} | "
+                f"Maturity: {self.active_position.maturity} | "
+                f"Critical: [{self.active_position.lower_price:.2f}, {self.active_position.upper_price:.2f}]",
+                flush=True,
+            )
+        else:
+            nearest_expiration = self.client.get_nearest_expiration(
+                self.symbol, self.exchange, self.currency
+            )
+            expiration_datetime = datetime.strptime(
+                nearest_expiration, "%Y%m%d"
+            ).replace(hour=16, minute=0, second=0)
+            hours_until_expiration = (
+                expiration_datetime - datetime.now()
+            ).total_seconds() / 3600.0
+            print(
+                f"[{current_time_string}] [{self.symbol} PING] "
+                f"Spot: {current_price:.2f} {self.currency} | "
+                f"P/L: N/A | "
+                f"Start: N/A | "
+                f"Maturity: {nearest_expiration} 16:00 ({hours_until_expiration:.1f}h) | "
+                f"Critical: N/A",
+                flush=True,
             )
 
     def run(self) -> None:
         self.client.check_connection()
         print(
-            f"[{datetime.now()}] Connected to Interactive Brokers Gateway. Monitoring {self.symbol} ({self.exchange}) every {self.check_interval_seconds}s...",
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Connected to Interactive Brokers Gateway. Monitoring {self.symbol} ({self.exchange}) every {self.check_interval_seconds}s...",
             flush=True,
         )
         while True:
             self.client.sleep(self.check_interval_seconds)
             self.check_active_position()
             self.open_new_position()
+            self.log_interval_status()
 
 
 def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
