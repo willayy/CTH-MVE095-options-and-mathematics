@@ -136,53 +136,97 @@ class TradingBot:
 
 
 def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
+    host_environment_value = os.environ.get("INTERACTIVE_BROKERS_HOST")
+    port_environment_value = os.environ.get("INTERACTIVE_BROKERS_PORT")
+    client_identifier_environment_value = os.environ.get(
+        "INTERACTIVE_BROKERS_CLIENT_ID"
+    )
+    fixed_capital_amount_environment_value = os.environ.get(
+        "FIXED_CAPITAL_AMOUNT_DOLLARS"
+    )
+    credibility_percentage_environment_value = os.environ.get(
+        "CREDIBILITY_INTERVAL_PERCENTAGE"
+    )
+    decay_factor_environment_value = os.environ.get("DECAY_FACTOR")
+    check_interval_environment_value = os.environ.get("CHECK_INTERVAL_SECONDS")
+    targets_environment_value = os.environ.get("TARGET_SPECIFICATIONS")
+
     argument_parser = argparse.ArgumentParser(
         description="Automated short straddle options trading bot."
     )
     argument_parser.add_argument(
         "targets",
-        nargs="*",
+        nargs="*" if targets_environment_value else "+",
         help="Target contract specifications as triplets: SYMBOL EXCHANGE CURRENCY ...",
     )
     argument_parser.add_argument(
         "--host",
-        default=os.environ.get("INTERACTIVE_BROKERS_HOST", "127.0.0.1"),
+        default=host_environment_value,
+        required=host_environment_value is None,
         help="Interactive Brokers Gateway or TWS host address.",
     )
     argument_parser.add_argument(
         "--port",
         type=int,
-        default=int(os.environ.get("INTERACTIVE_BROKERS_PORT", "7497")),
+        default=(
+            int(port_environment_value) if port_environment_value is not None else None
+        ),
+        required=port_environment_value is None,
         help="Interactive Brokers Gateway or TWS port number.",
     )
     argument_parser.add_argument(
         "--client-id",
         type=int,
-        default=int(os.environ.get("INTERACTIVE_BROKERS_CLIENT_ID", "10")),
+        default=(
+            int(client_identifier_environment_value)
+            if client_identifier_environment_value is not None
+            else None
+        ),
+        required=client_identifier_environment_value is None,
         help="Interactive Brokers client identifier.",
     )
     argument_parser.add_argument(
         "--fixed-capital-amount",
         type=float,
-        default=float(os.environ.get("FIXED_CAPITAL_AMOUNT_DOLLARS", "10000.0")),
+        default=(
+            float(fixed_capital_amount_environment_value)
+            if fixed_capital_amount_environment_value is not None
+            else None
+        ),
+        required=fixed_capital_amount_environment_value is None,
         help="Fixed capital allocation amount in dollars.",
     )
     argument_parser.add_argument(
         "--credibility-percentage",
         type=float,
-        default=float(os.environ.get("CREDIBILITY_INTERVAL_PERCENTAGE", "0.95")),
+        default=(
+            float(credibility_percentage_environment_value)
+            if credibility_percentage_environment_value is not None
+            else None
+        ),
+        required=credibility_percentage_environment_value is None,
         help="Credibility interval percentage for Bayesian inference.",
     )
     argument_parser.add_argument(
         "--decay-factor",
         type=float,
-        default=0.995,
+        default=(
+            float(decay_factor_environment_value)
+            if decay_factor_environment_value is not None
+            else None
+        ),
+        required=decay_factor_environment_value is None,
         help="Exponential sample weight decay factor.",
     )
     argument_parser.add_argument(
-        "--check-interval",
+        "--check-interval-seconds",
         type=float,
-        default=5.0,
+        default=(
+            float(check_interval_environment_value)
+            if check_interval_environment_value is not None
+            else None
+        ),
+        required=check_interval_environment_value is None,
         help="Interval in seconds between active position checks.",
     )
     return argument_parser.parse_args(command_line_arguments)
@@ -233,6 +277,6 @@ if __name__ == "__main__":
         parsed_arguments.fixed_capital_amount,
         parsed_arguments.credibility_percentage,
         parsed_arguments.decay_factor,
-        parsed_arguments.check_interval,
+        parsed_arguments.check_interval_seconds,
     )
     bot.run()
