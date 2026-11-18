@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.bayesian_inference import bayesian_inference, critical_price_interval
+from src.bayesian_inference import bayesian_inference
 from src.ib_client import InteractiveBrokersClient
 
 
@@ -30,7 +30,7 @@ class Position:
 class TradingBot:
     def __init__(
         self,
-        target_specifications: list[tuple[str, str, str, float]],
+        target_specifications: list[tuple[str, str, str]],
         host_address: str,
         port_number: int,
         client_identifier: int,
@@ -93,7 +93,7 @@ class TradingBot:
 
     def open_new_positions(self) -> None:
         active_symbols = {position.symbol for position in self.active_positions}
-        for symbol, exchange, currency, user_price in self.target_specifications:
+        for symbol, exchange, currency in self.target_specifications:
             if symbol in active_symbols:
                 continue
 
@@ -102,12 +102,14 @@ class TradingBot:
             )
             if self.is_maturity_within_check_window(nearest_expiration):
                 self.client.download_data(symbol, exchange, currency)
-                precision_posterior = bayesian_inference(symbol, self.decay_factor)
-                lower_price, upper_price = critical_price_interval(
-                    user_price,
-                    0.0,
-                    precision_posterior,
+                current_price = self.client.get_current_price(
+                    symbol, exchange, currency
+                )
+                lower_price, upper_price = bayesian_inference(
+                    symbol,
+                    current_price,
                     self.credibility_interval_percentage,
+                    self.decay_factor,
                 )
                 call_contract, put_contract, order_quantity = (
                     self.client.create_straddle(
@@ -141,20 +143,19 @@ class TradingBot:
 
 def parse_target_specifications(
     raw_targets: list[str],
-) -> list[tuple[str, str, str, float]]:
-    target_specifications: list[tuple[str, str, str, float]] = []
+) -> list[tuple[str, str, str]]:
+    target_specifications: list[tuple[str, str, str]] = []
     if raw_targets:
-        if len(raw_targets) % 4 != 0:
+        if len(raw_targets) % 3 != 0:
             raise ValueError(
-                "Target specifications must be provided in quadruplets of SYMBOL EXCHANGE CURRENCY PRICE."
+                "Target specifications must be provided in triplets of SYMBOL EXCHANGE CURRENCY."
             )
-        for index in range(0, len(raw_targets), 4):
+        for index in range(0, len(raw_targets), 3):
             target_specifications.append(
                 (
                     raw_targets[index].upper(),
                     raw_targets[index + 1].upper(),
                     raw_targets[index + 2].upper(),
-                    float(raw_targets[index + 3]),
                 )
             )
     else:
@@ -162,13 +163,12 @@ def parse_target_specifications(
         if environment_targets:
             for entry in environment_targets.split(","):
                 parts = entry.strip().split(":")
-                if len(parts) == 4:
+                if len(parts) == 3:
                     target_specifications.append(
                         (
                             parts[0].upper(),
                             parts[1].upper(),
                             parts[2].upper(),
-                            float(parts[3]),
                         )
                     )
     if not target_specifications:
@@ -200,7 +200,7 @@ def parse_arguments(command_line_arguments: list[str]) -> argparse.Namespace:
     argument_parser.add_argument(
         "targets",
         nargs="*" if targets_environment_value else "+",
-        help="Target contract specifications as quadruplets: SYMBOL EXCHANGE CURRENCY PRICE ...",
+        help="Target contract specifications as triplets: SYMBOL EXCHANGE CURRENCY ...",
     )
     argument_parser.add_argument(
         "--host",
