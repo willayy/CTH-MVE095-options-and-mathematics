@@ -22,6 +22,7 @@ class InteractiveBrokersClient:
         self.interactive_brokers.connect(self.host, self.port, clientId=self.client_id)
         if not self.interactive_brokers.isConnected():
             raise ConnectionError("Failed to connect to Interactive Brokers.")
+        self.interactive_brokers.reqMarketDataType(3)
 
     def disconnect(self) -> None:
         self.interactive_brokers.disconnect()
@@ -61,9 +62,12 @@ class InteractiveBrokersClient:
         contract = Index(symbol, exchange, currency)
         self.interactive_brokers.qualifyContracts(contract)
         market_data = self.interactive_brokers.reqMktData(contract, "", False, False)
+        self.interactive_brokers.sleep(1.0)
         current_price = market_data.marketPrice()
         if math.isnan(current_price) or current_price <= 0.0:
             current_price = market_data.close
+        if math.isnan(current_price) or current_price <= 0.0:
+            current_price = market_data.last
         return float(current_price)
 
     def get_nearest_expiration(
@@ -108,6 +112,8 @@ class InteractiveBrokersClient:
         current_price = market_data.marketPrice()
         if math.isnan(current_price) or current_price <= 0.0:
             current_price = market_data.close
+        if math.isnan(current_price) or current_price <= 0.0:
+            current_price = market_data.last
 
         closest_strike = min(
             selected_chain.strikes,
