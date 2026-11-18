@@ -82,6 +82,10 @@ class TradingBot:
             current_price < self.active_position.lower_price
             or current_price > self.active_position.upper_price
         ):
+            print(
+                f"[{datetime.now()}] Neutralizing straddle on {self.symbol}: price {current_price:.2f} exited critical interval [{self.active_position.lower_price:.2f}, {self.active_position.upper_price:.2f}].",
+                flush=True,
+            )
             self.client.neutralize_straddle(
                 self.active_position.call_contract,
                 self.active_position.put_contract,
@@ -114,6 +118,10 @@ class TradingBot:
                 nearest_expiration,
                 self.fixed_capital_amount_dollars,
             )
+            print(
+                f"[{datetime.now()}] Opened straddle on {self.symbol} (expiration: {nearest_expiration}, lower: {lower_price:.2f}, upper: {upper_price:.2f}, quantity: {order_quantity}).",
+                flush=True,
+            )
             self.active_position = Position(
                 self.symbol,
                 self.exchange,
@@ -127,6 +135,10 @@ class TradingBot:
 
     def run(self) -> None:
         self.client.check_connection()
+        print(
+            f"[{datetime.now()}] Connected to Interactive Brokers Gateway. Monitoring {self.symbol} ({self.exchange}) every {self.check_interval_seconds}s...",
+            flush=True,
+        )
         while True:
             self.client.sleep(self.check_interval_seconds)
             self.check_active_position()
