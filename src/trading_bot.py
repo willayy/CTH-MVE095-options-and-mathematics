@@ -10,11 +10,6 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.bayesian_inference import bayesian_inference
 from src.ib_client import InteractiveBrokersClient
 
-DEFAULT_TARGET_SPECIFICATIONS = [
-    ("SPX", "CBOE", "USD"),
-    ("DJ600", "EUREX", "EUR"),
-]
-
 
 class TradingBot:
     def __init__(
@@ -28,6 +23,10 @@ class TradingBot:
         decay_factor: float,
         check_interval_seconds: float,
     ) -> None:
+        if not target_specifications:
+            raise ValueError(
+                "target_specifications must contain at least one contract specification."
+            )
         self.target_specifications = target_specifications
         self.host_address = host_address
         self.port_number = port_number
@@ -120,6 +119,32 @@ class TradingBot:
             self.open_new_positions()
 
 
+def parse_target_specifications() -> list[tuple[str, str, str]]:
+    targets: list[tuple[str, str, str]] = []
+    environment_targets = os.environ.get("TARGET_SPECIFICATIONS")
+    if environment_targets:
+        for entry in environment_targets.split(","):
+            parts = entry.strip().split(":")
+            if len(parts) == 3:
+                targets.append((parts[0].upper(), parts[1].upper(), parts[2].upper()))
+    if len(sys.argv) >= 4:
+        argument_index = 1
+        while argument_index + 2 < len(sys.argv):
+            targets.append(
+                (
+                    sys.argv[argument_index].upper(),
+                    sys.argv[argument_index + 1].upper(),
+                    sys.argv[argument_index + 2].upper(),
+                )
+            )
+            argument_index += 3
+    if not targets:
+        raise ValueError(
+            "No target specifications provided. Pass contract specifications as command line arguments or via TARGET_SPECIFICATIONS environment variable."
+        )
+    return targets
+
+
 if __name__ == "__main__":
     host_address_value = os.environ.get("INTERACTIVE_BROKERS_HOST", "127.0.0.1")
     port_number_value = int(os.environ.get("INTERACTIVE_BROKERS_PORT", "7497"))
@@ -131,13 +156,7 @@ if __name__ == "__main__":
         os.environ.get("CREDIBILITY_INTERVAL_PERCENTAGE", "0.95")
     )
 
-    targets = DEFAULT_TARGET_SPECIFICATIONS
-    if len(sys.argv) >= 4 and not sys.argv[1].startswith("-"):
-        targets = [(sys.argv[1].upper(), sys.argv[2].upper(), sys.argv[3].upper())]
-        if len(sys.argv) > 4:
-            credibility_percentage_value = float(sys.argv[4])
-        if len(sys.argv) > 5:
-            fixed_capital_amount_value = float(sys.argv[5])
+    targets = parse_target_specifications()
 
     bot = TradingBot(
         targets,
