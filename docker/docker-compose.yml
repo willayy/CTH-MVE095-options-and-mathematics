@@ -5,6 +5,7 @@ services:
     env_file:
       - ../.env
     environment:
+      EXISTING_SESSION_DETECTED_ACTION: "primary"
       READ_ONLY_API: "no"
       RESTART_TIME: "23:55"
       VNC_SERVER: "yes"
