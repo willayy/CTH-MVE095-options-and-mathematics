@@ -1,7 +1,10 @@
 import os
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+from ib_async import Option
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -9,6 +12,18 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.bayesian_inference import bayesian_inference
 from src.ib_client import InteractiveBrokersClient
+
+
+@dataclass
+class Position:
+    symbol: str
+    exchange: str
+    currency: str
+    lower_price: float
+    upper_price: float
+    call_contract: Option
+    put_contract: Option
+    order_quantity: int
 
 
 class TradingBot:
