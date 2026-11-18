@@ -41,5 +41,5 @@ services:
       "--credibility-percentage", "${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}",
       "--decay-factor", "${DECAY_FACTOR:-0.995}",
       "--check-interval-seconds", "${CHECK_INTERVAL_SECONDS:-5.0}",
-      "SPX", "CBOE", "USD", "DJ600", "EUREX", "EUR"
+      "SPX", "CBOE", "USD", "5800.0", "DJ600", "EUREX", "EUR", "500.0"
     ]
