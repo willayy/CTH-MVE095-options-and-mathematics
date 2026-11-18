@@ -7,9 +7,12 @@ services:
     environment:
       READ_ONLY_API: "no"
       RESTART_TIME: "23:55"
+      VNC_SERVER: "yes"
+      VNC_SERVER_PASSWORD: ${VNC_PASSWORD:-trading123}
     ports:
-      - "127.0.0.1:4002:4002"
-      - "127.0.0.1:4001:4001"
+      - "127.0.0.1:4002:4004"
+      - "127.0.0.1:4001:4003"
+      - "127.0.0.1:5900:5900"
 
   trading-bot-spx:
     build:
@@ -23,7 +26,7 @@ services:
     command: [
       "python", "src/trading_bot.py",
       "--host", "ib-gateway",
-      "--port", "4002",
+      "--port", "4004",
       "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID_SPX:-10}",
       "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-10000.0}",
       "--credibility-percentage", "${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}",
@@ -44,7 +47,7 @@ services:
     command: [
       "python", "src/trading_bot.py",
       "--host", "ib-gateway",
-      "--port", "4002",
+      "--port", "4004",
       "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID_DJ600:-11}",
       "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-10000.0}",
       "--credibility-percentage", "${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}",
