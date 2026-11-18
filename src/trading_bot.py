@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.bayesian_inference import bayesian_inference
+from src.bayesian_inference import bayesian_inference, critical_price_interval
 from src.ib_client import InteractiveBrokersClient
 
 
@@ -102,8 +102,15 @@ class TradingBot:
             )
             if self.is_maturity_within_check_window(nearest_expiration):
                 self.client.download_data(symbol, exchange, currency)
-                lower_price, upper_price = bayesian_inference(
-                    symbol, self.credibility_interval_percentage, self.decay_factor
+                current_price = self.client.get_current_price(
+                    symbol, exchange, currency
+                )
+                precision_posterior = bayesian_inference(symbol, self.decay_factor)
+                lower_price, upper_price = critical_price_interval(
+                    current_price,
+                    0.0,
+                    precision_posterior,
+                    self.credibility_interval_percentage,
                 )
                 call_contract, put_contract, order_quantity = (
                     self.client.create_straddle(
