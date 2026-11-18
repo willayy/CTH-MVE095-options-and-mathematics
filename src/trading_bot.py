@@ -53,7 +53,7 @@ class TradingBot:
         self.client = InteractiveBrokersClient(
             host_address, port_number, client_identifier
         )
-        self.active_positions: list[dict] = []
+        self.active_positions: list[Position] = []
 
     def is_maturity_within_check_window(
         self,
@@ -72,26 +72,26 @@ class TradingBot:
         )
 
     def check_active_positions(self) -> None:
-        remaining_positions: list[dict] = []
+        remaining_positions: list[Position] = []
         for position in self.active_positions:
             current_price = self.client.get_current_price(
-                position["symbol"], position["exchange"], position["currency"]
+                position.symbol, position.exchange, position.currency
             )
             if (
-                current_price < position["lower_price"]
-                or current_price > position["upper_price"]
+                current_price < position.lower_price
+                or current_price > position.upper_price
             ):
                 self.client.neutralize_straddle(
-                    position["call_contract"],
-                    position["put_contract"],
-                    position["order_quantity"],
+                    position.call_contract,
+                    position.put_contract,
+                    position.order_quantity,
                 )
             else:
                 remaining_positions.append(position)
         self.active_positions = remaining_positions
 
     def open_new_positions(self) -> None:
-        active_symbols = {position["symbol"] for position in self.active_positions}
+        active_symbols = {position.symbol for position in self.active_positions}
         for symbol, exchange, currency in self.target_specifications:
             if symbol in active_symbols:
                 continue
@@ -114,16 +114,16 @@ class TradingBot:
                     )
                 )
                 self.active_positions.append(
-                    {
-                        "symbol": symbol,
-                        "exchange": exchange,
-                        "currency": currency,
-                        "lower_price": lower_price,
-                        "upper_price": upper_price,
-                        "call_contract": call_contract,
-                        "put_contract": put_contract,
-                        "order_quantity": order_quantity,
-                    }
+                    Position(
+                        symbol,
+                        exchange,
+                        currency,
+                        lower_price,
+                        upper_price,
+                        call_contract,
+                        put_contract,
+                        order_quantity,
+                    )
                 )
 
     def run(self) -> None:
