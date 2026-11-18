@@ -9,14 +9,6 @@ from src.bayesian_inference import bayesian_inference
 from src.ib_client import InteractiveBrokersClient
 
 
-def condition(
-    current_price: float,
-    lower_price: float,
-    upper_price: float,
-) -> bool:
-    return current_price < lower_price or current_price > upper_price
-
-
 def main(
     symbol: str,
     exchange: str,
@@ -49,7 +41,7 @@ def main(
         client.sleep(check_interval_seconds)
         current_price = client.get_current_price(symbol, exchange, currency)
 
-        if condition(current_price, lower_price, upper_price):
+        if current_price < lower_price or current_price > upper_price:
             client.neutralize_straddle(
                 call_contract,
                 put_contract,
