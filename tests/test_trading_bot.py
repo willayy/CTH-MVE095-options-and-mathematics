@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.trading_bot import Position, TradingBot
+from src.trading_bot import Position, TradingBot, parse_arguments
 
 
 def test_trading_bot_holds_position_until_maturity_when_price_in_bounds() -> None:
@@ -199,3 +199,57 @@ def test_trading_bot_is_maturity_within_check_window() -> None:
 
         mock_datetime.now.return_value = datetime(2026, 11, 19, 15, 59, 50)
         assert bot.is_maturity_within_check_window("20261120") is False
+
+
+def test_parse_arguments_converts_targets_to_triplets() -> None:
+    arguments = [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "7497",
+        "--client-id",
+        "10",
+        "--fixed-capital-amount",
+        "10000.0",
+        "--credibility-percentage",
+        "0.95",
+        "--decay-factor",
+        "0.995",
+        "--check-interval-seconds",
+        "3.0",
+        "SPX",
+        "CBOE",
+        "USD",
+        "DJ600",
+        "EUREX",
+        "EUR",
+    ]
+    parsed = parse_arguments(arguments)
+    assert parsed.targets == [("SPX", "CBOE", "USD"), ("DJ600", "EUREX", "EUR")]
+    assert parsed.host == "127.0.0.1"
+    assert parsed.port == 7497
+
+
+def test_parse_arguments_rejects_incomplete_target_triplet() -> None:
+    arguments = [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "7497",
+        "--client-id",
+        "10",
+        "--fixed-capital-amount",
+        "10000.0",
+        "--credibility-percentage",
+        "0.95",
+        "--decay-factor",
+        "0.995",
+        "--check-interval-seconds",
+        "3.0",
+        "SPX",
+        "CBOE",
+    ]
+    with pytest.raises(
+        ValueError, match="Target specifications must be provided in triplets"
+    ):
+        parse_arguments(arguments)
