@@ -29,5 +29,17 @@ services:
       INTERACTIVE_BROKERS_CLIENT_ID: ${INTERACTIVE_BROKERS_CLIENT_ID:-10}
       CREDIBILITY_INTERVAL_PERCENTAGE: ${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}
       FIXED_CAPITAL_AMOUNT_DOLLARS: ${FIXED_CAPITAL_AMOUNT_DOLLARS:-10000.0}
+      DECAY_FACTOR: ${DECAY_FACTOR:-0.995}
+      CHECK_INTERVAL_SECONDS: ${CHECK_INTERVAL_SECONDS:-5.0}
       TZ: UTC
-    command: ["python", "src/trading_bot.py", "SPX", "CBOE", "USD", "DJ600", "EUREX", "EUR"]
+    command: [
+      "python", "src/trading_bot.py",
+      "--host", "ib-gateway",
+      "--port", "${INTERACTIVE_BROKERS_PORT:-4002}",
+      "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID:-10}",
+      "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-10000.0}",
+      "--credibility-percentage", "${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}",
+      "--decay-factor", "${DECAY_FACTOR:-0.995}",
+      "--check-interval-seconds", "${CHECK_INTERVAL_SECONDS:-5.0}",
+      "SPX", "CBOE", "USD", "DJ600", "EUREX", "EUR"
+    ]
