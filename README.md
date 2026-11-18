@@ -1,6 +1,6 @@
 # Options and Mathematics (MVE095)
 
-Automated options trading system for 1-day maturity European short straddles (`SPX`, `DJ600`) on Interactive Brokers, using Bayesian inference.
+Automated options trading system for 1-day maturity European short straddles (`SPX`, `ESTX50`) on Interactive Brokers, using Bayesian inference.
 
 ---
 
@@ -24,7 +24,7 @@ TRADING_MODE=paper
 
 ### 2. Run with Docker (Recommended)
 
-Start the full stack (IB Gateway + SPX Bot + DJ600 Bot):
+Start the full stack (IB Gateway + SPX Bot + ESTX50 Bot):
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d --build
@@ -59,8 +59,8 @@ docker compose -f docker/docker-compose.yml down
    # SPX on CBOE
    python src/trading_bot.py SPX CBOE USD --host 127.0.0.1 --port 7497 --client-id 10 --fixed-capital-amount 10000.0 --credibility-percentage 0.95 --decay-factor 0.995 --check-interval-seconds 30.0
 
-   # DJ600 on EUREX
-   python src/trading_bot.py DJ600 EUREX EUR --host 127.0.0.1 --port 7497 --client-id 11 --fixed-capital-amount 10000.0 --credibility-percentage 0.95 --decay-factor 0.995 --check-interval-seconds 30.0
+   # ESTX50 on EUREX
+   python src/trading_bot.py ESTX50 EUREX EUR --host 127.0.0.1 --port 7497 --client-id 11 --fixed-capital-amount 10000.0 --credibility-percentage 0.95 --decay-factor 0.995 --check-interval-seconds 30.0
    ```
 
 ---

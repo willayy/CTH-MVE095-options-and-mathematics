@@ -36,7 +36,7 @@ services:
       "SPX", "CBOE", "USD"
     ]
 
-  trading-bot-dj600:
+  trading-bot-estx50:
     build:
       context: .
       dockerfile: Dockerfile
@@ -49,10 +49,10 @@ services:
       "python", "src/trading_bot.py",
       "--host", "ib-gateway",
       "--port", "4004",
-      "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID_DJ600:-11}",
+      "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID_ESTX50:-11}",
       "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-10000.0}",
       "--credibility-percentage", "${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}",
       "--decay-factor", "${DECAY_FACTOR:-0.995}",
       "--check-interval-seconds", "${CHECK_INTERVAL_SECONDS:-30.0}",
-      "DJ600", "EUREX", "EUR"
+      "ESTX50", "EUREX", "EUR"
     ]
