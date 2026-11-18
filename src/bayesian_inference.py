@@ -111,26 +111,37 @@ def load_last_price(file_path: Path | str) -> float:
 
 def bayesian_inference(
     symbol: str,
+    initial_price: float,
+    coverage_probability: float,
     decay_factor: float,
-) -> stats.rv_continuous:
+) -> tuple[float, float]:
     file_path = DATA_DIRECTORY / f"{symbol.lower()}_daily.csv"
     returns = load_daily_returns(file_path).dropna().values
 
     weights = compute_exponential_weights(len(returns), decay_factor)
     normalized_weights = weights * len(returns) / np.sum(weights)
     weighted_returns = returns * np.sqrt(normalized_weights)
-    return posterior(0.0, weighted_returns)
+    precision_posterior = posterior(0.0, weighted_returns)
+
+    return critical_price_interval(
+        initial_price,
+        0.0,
+        precision_posterior,
+        coverage_probability,
+    )
 
 
 def main() -> None:
     ticker = sys.argv[1].upper()
     coverage_probability_value = 0.95
     decay_factor_value = 0.995
-    precision_posterior = bayesian_inference(ticker, decay_factor_value)
     file_path = DATA_DIRECTORY / f"{ticker.lower()}_daily.csv"
     last_price = load_last_price(file_path)
-    final_interval = critical_price_interval(
-        last_price, 0.0, precision_posterior, coverage_probability_value
+    final_interval = bayesian_inference(
+        ticker,
+        last_price,
+        coverage_probability_value,
+        decay_factor_value,
     )
     print(final_interval)
 
