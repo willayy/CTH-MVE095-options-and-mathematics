@@ -1,4 +1,3 @@
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -240,33 +239,33 @@ def test_parse_arguments_parses_single_asset_target() -> None:
     assert parsed.currency == "USD"
     assert parsed.host == "127.0.0.1"
     assert parsed.port == 7497
+    assert parsed.client_id == 10
+    assert parsed.fixed_capital_amount == 10000.0
+    assert parsed.credibility_percentage == 0.95
+    assert parsed.decay_factor == 0.995
+    assert parsed.check_interval_seconds == 3.0
 
 
-def test_parse_arguments_reads_environment_variables_for_target() -> None:
-    environment_override = {
-        "TARGET_SYMBOL": "DJ600",
-        "TARGET_EXCHANGE": "EUREX",
-        "TARGET_CURRENCY": "EUR",
-        "INTERACTIVE_BROKERS_HOST": "127.0.0.1",
-        "INTERACTIVE_BROKERS_PORT": "7497",
-        "INTERACTIVE_BROKERS_CLIENT_ID": "11",
-        "FIXED_CAPITAL_AMOUNT_DOLLARS": "15000.0",
-        "CREDIBILITY_INTERVAL_PERCENTAGE": "0.99",
-        "DECAY_FACTOR": "0.990",
-        "CHECK_INTERVAL_SECONDS": "5.0",
-    }
-    with patch.dict(os.environ, environment_override):
-        parsed = parse_arguments([])
-        assert parsed.symbol == "DJ600"
-        assert parsed.exchange == "EUREX"
-        assert parsed.currency == "EUR"
-        assert parsed.host == "127.0.0.1"
-        assert parsed.port == 7497
-        assert parsed.client_id == 11
-        assert parsed.fixed_capital_amount == 15000.0
-        assert parsed.credibility_percentage == 0.99
-        assert parsed.decay_factor == 0.990
-        assert parsed.check_interval_seconds == 5.0
+def test_parse_arguments_raises_error_when_flag_arguments_missing() -> None:
+    arguments = [
+        "SPX",
+        "CBOE",
+        "USD",
+        "--port",
+        "7497",
+        "--client-id",
+        "10",
+        "--fixed-capital-amount",
+        "10000.0",
+        "--credibility-percentage",
+        "0.95",
+        "--decay-factor",
+        "0.995",
+        "--check-interval-seconds",
+        "3.0",
+    ]
+    with pytest.raises(SystemExit):
+        parse_arguments(arguments)
 
 
 def test_parse_arguments_raises_error_when_positional_arguments_missing() -> None:
