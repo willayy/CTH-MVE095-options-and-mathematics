@@ -172,3 +172,22 @@ class InteractiveBrokersClient:
         self.interactive_brokers.placeOrder(
             put_contract, MarketOrder("BUY", order_quantity)
         )
+
+    def get_position_pnl(
+        self,
+        call_contract: Option,
+        put_contract: Option,
+    ) -> float:
+        total_pnl = 0.0
+        target_con_ids = {call_contract.conId, put_contract.conId}
+        target_symbols = {
+            getattr(call_contract, "localSymbol", ""),
+            getattr(put_contract, "localSymbol", ""),
+        }
+        for item in self.interactive_brokers.portfolio():
+            if item.contract.conId in target_con_ids or (
+                item.contract.localSymbol
+                and item.contract.localSymbol in target_symbols
+            ):
+                total_pnl += float(item.unrealizedPNL)
+        return total_pnl
