@@ -5,9 +5,6 @@ services:
     env_file:
       - ../.env
     environment:
-      TWS_USERID: ${TWS_USERID}
-      TWS_PASSWORD: ${TWS_PASSWORD}
-      TRADING_MODE: ${TRADING_MODE:-paper}
       READ_ONLY_API: "no"
       RESTART_TIME: "23:55"
     ports:
@@ -26,7 +23,7 @@ services:
     command: [
       "python", "src/trading_bot.py",
       "--host", "ib-gateway",
-      "--port", "${INTERACTIVE_BROKERS_PORT:-4002}",
+      "--port", "4002",
       "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID_SPX:-10}",
       "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-10000.0}",
       "--credibility-percentage", "${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}",
@@ -47,7 +44,7 @@ services:
     command: [
       "python", "src/trading_bot.py",
       "--host", "ib-gateway",
-      "--port", "${INTERACTIVE_BROKERS_PORT:-4002}",
+      "--port", "4002",
       "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID_DJ600:-11}",
       "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-10000.0}",
       "--credibility-percentage", "${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}",
