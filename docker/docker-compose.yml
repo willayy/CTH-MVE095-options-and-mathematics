@@ -30,4 +30,4 @@ services:
       CREDIBILITY_INTERVAL_PERCENTAGE: ${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}
       FIXED_CAPITAL_AMOUNT_DOLLARS: ${FIXED_CAPITAL_AMOUNT_DOLLARS:-10000.0}
       TZ: UTC
-    command: ["python", "src/trading_bot.py"]
+    command: ["python", "src/trading_bot.py", "SPX", "CBOE", "USD", "DJ600", "EUREX", "EUR"]
