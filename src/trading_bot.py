@@ -1,20 +1,12 @@
-import math
 import sys
 from pathlib import Path
-
-from ib_async import IB, Index
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.bayesian_inference import bayesian_inference
-from src.ib_client import (
-    check_connection,
-    create_straddle,
-    download_data,
-    neutralize_straddle,
-)
+from src.ib_client import InteractiveBrokersClient
 
 
 def condition(
@@ -38,52 +30,36 @@ def main(
     check_interval_seconds: float,
     maximum_checks: int,
 ) -> None:
-    interactive_brokers = IB()
-    check_connection(interactive_brokers, host, port, client_id)
+    client = InteractiveBrokersClient(host, port, client_id)
+    client.check_connection()
 
-    download_data(symbol, exchange, currency, host, port, client_id)
-    
+    client.download_data(symbol, exchange, currency)
     lower_price, upper_price = bayesian_inference(
         symbol, coverage_probability, decay_factor
     )
 
-    underlying_contract = Index(symbol, exchange, currency)
-    
-    interactive_brokers.qualifyContracts(underlying_contract)
-
-    call_contract, put_contract = create_straddle(
-        interactive_brokers, underlying_contract, order_quantity
+    call_contract, put_contract = client.create_straddle(
+        symbol, exchange, currency, order_quantity
     )
 
-    market_data = interactive_brokers.reqMktData(underlying_contract, "", False, False)
-    
     check_index = 0
-    
     position_active = True
 
     while position_active and check_index < maximum_checks:
-        
-        interactive_brokers.sleep(check_interval_seconds)
-        
-        current_price = market_data.marketPrice()
-        
-        if math.isnan(current_price) or current_price <= 0.0:
-            current_price = market_data.close
+        client.sleep(check_interval_seconds)
+        current_price = client.get_current_price(symbol, exchange, currency)
 
         if condition(current_price, lower_price, upper_price):
-            
-            neutralize_straddle(
-                interactive_brokers,
+            client.neutralize_straddle(
                 call_contract,
                 put_contract,
                 order_quantity,
             )
-            
             position_active = False
 
         check_index += 1
 
-    interactive_brokers.disconnect()
+    client.disconnect()
 
 
 if __name__ == "__main__":
