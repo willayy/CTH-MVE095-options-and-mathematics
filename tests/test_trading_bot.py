@@ -1,3 +1,4 @@
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +19,9 @@ from src.trading_bot import (
 
 def test_trading_bot_holds_position_until_maturity_when_price_in_bounds() -> None:
     bot = TradingBot(
-        [("SPX", "CBOE", "USD")],
+        "SPX",
+        "CBOE",
+        "USD",
         "127.0.0.1",
         7497,
         10,
@@ -41,21 +44,20 @@ def test_trading_bot_holds_position_until_maturity_when_price_in_bounds() -> Non
             "src.trading_bot.bayesian_inference", return_value=(4900.0, 5100.0)
         ) as mock_bayesian_inference,
     ):
-        bot.open_new_positions()
+        bot.open_new_position()
 
         mock_bayesian_inference.assert_called_once_with("SPX", 5000.0, 0.95, 0.995)
-        assert len(bot.active_positions) == 1
-        position = bot.active_positions[0]
-        assert position.symbol == "SPX"
-        assert position.lower_price == 4900.0
-        assert position.upper_price == 5100.0
-        assert position.order_quantity == 2
+        assert bot.active_position is not None
+        assert bot.active_position.symbol == "SPX"
+        assert bot.active_position.lower_price == 4900.0
+        assert bot.active_position.upper_price == 5100.0
+        assert bot.active_position.order_quantity == 2
         assert bot.client.create_straddle.call_count == 1
 
         bot.client.get_current_price.return_value = 5020.0
-        bot.check_active_positions()
+        bot.check_active_position()
 
-        assert len(bot.active_positions) == 1
+        assert bot.active_position is not None
         assert bot.client.neutralize_straddle.call_count == 0
 
 
@@ -63,7 +65,9 @@ def test_trading_bot_neutralizes_and_reopens_position_when_price_breaks_interval
     None
 ):
     bot = TradingBot(
-        [("SPX", "CBOE", "USD")],
+        "SPX",
+        "CBOE",
+        "USD",
         "127.0.0.1",
         7497,
         10,
@@ -94,32 +98,34 @@ def test_trading_bot_neutralizes_and_reopens_position_when_price_breaks_interval
             side_effect=[(4900.0, 5100.0), (5050.0, 5250.0)],
         ) as mock_bayesian_inference,
     ):
-        bot.open_new_positions()
+        bot.open_new_position()
         mock_bayesian_inference.assert_called_with("SPX", 5000.0, 0.95, 0.995)
-        assert len(bot.active_positions) == 1
-        assert bot.active_positions[0].call_contract == first_call_contract
+        assert bot.active_position is not None
+        assert bot.active_position.call_contract == first_call_contract
 
         bot.client.get_current_price.return_value = 5120.0
-        bot.check_active_positions()
+        bot.check_active_position()
 
-        assert len(bot.active_positions) == 0
+        assert bot.active_position is None
         bot.client.neutralize_straddle.assert_called_once_with(
             first_call_contract, first_put_contract, 2
         )
 
         bot.client.get_current_price.return_value = 5150.0
-        bot.open_new_positions()
+        bot.open_new_position()
 
-        assert len(bot.active_positions) == 1
-        assert bot.active_positions[0].call_contract == second_call_contract
-        assert bot.active_positions[0].lower_price == 5050.0
-        assert bot.active_positions[0].upper_price == 5250.0
+        assert bot.active_position is not None
+        assert bot.active_position.call_contract == second_call_contract
+        assert bot.active_position.lower_price == 5050.0
+        assert bot.active_position.upper_price == 5250.0
         assert bot.client.create_straddle.call_count == 2
 
 
 def test_trading_bot_run_loop_with_three_second_sleep_and_lifecycle() -> None:
     bot = TradingBot(
-        [("SPX", "CBOE", "USD")],
+        "SPX",
+        "CBOE",
+        "USD",
         "127.0.0.1",
         7497,
         10,
@@ -182,7 +188,9 @@ def test_trading_bot_run_loop_with_three_second_sleep_and_lifecycle() -> None:
 
 def test_trading_bot_is_maturity_within_check_window() -> None:
     bot = TradingBot(
-        [("SPX", "CBOE", "USD")],
+        "SPX",
+        "CBOE",
+        "USD",
         "127.0.0.1",
         7497,
         10,
@@ -206,8 +214,11 @@ def test_trading_bot_is_maturity_within_check_window() -> None:
         assert bot.is_maturity_within_check_window("20261120") is False
 
 
-def test_parse_arguments_converts_targets_to_triplets() -> None:
+def test_parse_arguments_parses_single_asset_target() -> None:
     arguments = [
+        "SPX",
+        "CBOE",
+        "USD",
         "--host",
         "127.0.0.1",
         "--port",
@@ -222,24 +233,46 @@ def test_parse_arguments_converts_targets_to_triplets() -> None:
         "0.995",
         "--check-interval-seconds",
         "3.0",
-        "SPX",
-        "CBOE",
-        "USD",
-        "DJ600",
-        "EUREX",
-        "EUR",
     ]
     parsed = parse_arguments(arguments)
-    assert parsed.targets == [
-        ("SPX", "CBOE", "USD"),
-        ("DJ600", "EUREX", "EUR"),
-    ]
+    assert parsed.symbol == "SPX"
+    assert parsed.exchange == "CBOE"
+    assert parsed.currency == "USD"
     assert parsed.host == "127.0.0.1"
     assert parsed.port == 7497
 
 
-def test_parse_arguments_rejects_incomplete_target_triplet() -> None:
+def test_parse_arguments_reads_environment_variables_for_target() -> None:
+    environment_override = {
+        "TARGET_SYMBOL": "DJ600",
+        "TARGET_EXCHANGE": "EUREX",
+        "TARGET_CURRENCY": "EUR",
+        "INTERACTIVE_BROKERS_HOST": "127.0.0.1",
+        "INTERACTIVE_BROKERS_PORT": "7497",
+        "INTERACTIVE_BROKERS_CLIENT_ID": "11",
+        "FIXED_CAPITAL_AMOUNT_DOLLARS": "15000.0",
+        "CREDIBILITY_INTERVAL_PERCENTAGE": "0.99",
+        "DECAY_FACTOR": "0.990",
+        "CHECK_INTERVAL_SECONDS": "5.0",
+    }
+    with patch.dict(os.environ, environment_override):
+        parsed = parse_arguments([])
+        assert parsed.symbol == "DJ600"
+        assert parsed.exchange == "EUREX"
+        assert parsed.currency == "EUR"
+        assert parsed.host == "127.0.0.1"
+        assert parsed.port == 7497
+        assert parsed.client_id == 11
+        assert parsed.fixed_capital_amount == 15000.0
+        assert parsed.credibility_percentage == 0.99
+        assert parsed.decay_factor == 0.990
+        assert parsed.check_interval_seconds == 5.0
+
+
+def test_parse_arguments_raises_error_when_positional_arguments_missing() -> None:
     arguments = [
+        "SPX",
+        "CBOE",
         "--host",
         "127.0.0.1",
         "--port",
@@ -254,10 +287,6 @@ def test_parse_arguments_rejects_incomplete_target_triplet() -> None:
         "0.995",
         "--check-interval-seconds",
         "3.0",
-        "SPX",
-        "CBOE",
     ]
-    with pytest.raises(
-        ValueError, match="Target specifications must be provided in triplets"
-    ):
+    with pytest.raises(SystemExit):
         parse_arguments(arguments)
