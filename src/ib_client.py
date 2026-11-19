@@ -2,7 +2,11 @@ import math
 from datetime import datetime
 from pathlib import Path
 
+import ib_async.wrapper
 from ib_async import IB, Index, MarketOrder, Option, util
+
+if hasattr(ib_async.wrapper, "warningCodes"):
+    ib_async.wrapper.warningCodes = ib_async.wrapper.warningCodes | {10349}
 
 DATA_DIRECTORY = Path(__file__).resolve().parent.parent / "data"
 
@@ -186,10 +190,10 @@ class InteractiveBrokersClient:
         )
 
         self.interactive_brokers.placeOrder(
-            call_contract, MarketOrder("SELL", order_quantity)
+            call_contract, MarketOrder("SELL", order_quantity, tif="DAY")
         )
         self.interactive_brokers.placeOrder(
-            put_contract, MarketOrder("SELL", order_quantity)
+            put_contract, MarketOrder("SELL", order_quantity, tif="DAY")
         )
         return call_contract, put_contract, order_quantity
 
@@ -200,10 +204,10 @@ class InteractiveBrokersClient:
         order_quantity: int,
     ) -> None:
         self.interactive_brokers.placeOrder(
-            call_contract, MarketOrder("BUY", order_quantity)
+            call_contract, MarketOrder("BUY", order_quantity, tif="DAY")
         )
         self.interactive_brokers.placeOrder(
-            put_contract, MarketOrder("BUY", order_quantity)
+            put_contract, MarketOrder("BUY", order_quantity, tif="DAY")
         )
 
     def get_position_pnl(
