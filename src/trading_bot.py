@@ -216,6 +216,7 @@ class TradingBot:
             for position in self.active_positions.values()
             if position.status in {"OPEN", "NEUTRALIZED"}
         )
+        total_account_value = self.client.get_total_account_value()
         open_positions_count = sum(
             1
             for position in self.active_positions.values()
@@ -223,7 +224,9 @@ class TradingBot:
         )
         profit_and_loss_sign = "+" if total_profit_and_loss >= 0.0 else ""
         print(
-            f"Current P/L: {profit_and_loss_sign}{total_profit_and_loss:.2f} | Open Positions: {open_positions_count}",
+            f"Current Positions P/L: {profit_and_loss_sign}{total_profit_and_loss:.2f} | "
+            f"Total Account Value: {total_account_value:.2f} | "
+            f"Open Positions: {open_positions_count}",
             flush=True,
         )
 
