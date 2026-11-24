@@ -10,49 +10,32 @@ services:
       RESTART_TIME: "23:55"
       VNC_SERVER: "yes"
       VNC_SERVER_PASSWORD: ${VNC_PASSWORD:-trading123}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     ports:
       - "127.0.0.1:4002:4004"
       - "127.0.0.1:4001:4003"
       - "127.0.0.1:5900:5900"
 
-  trading-bot-spx:
+  trading-bot:
     build:
       context: .
       dockerfile: Dockerfile
     restart: always
     depends_on:
       - ib-gateway
-    environment:
-      TZ: UTC
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     command: [
       "python", "src/trading_bot.py",
       "--host", "ib-gateway",
       "--port", "4004",
-      "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID_SPX:-10}",
-      "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-10000.0}",
+      "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID:-10}",
+      "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-50000.0}",
       "--credibility-percentage", "${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}",
       "--decay-factor", "${DECAY_FACTOR:-0.995}",
       "--check-interval-seconds", "${CHECK_INTERVAL_SECONDS:-30.0}",
-      "SPX", "CBOE", "USD"
-    ]
-
-  trading-bot-estx50:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: always
-    depends_on:
-      - ib-gateway
-    environment:
-      TZ: UTC
-    command: [
-      "python", "src/trading_bot.py",
-      "--host", "ib-gateway",
-      "--port", "4004",
-      "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID_ESTX50:-11}",
-      "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-10000.0}",
-      "--credibility-percentage", "${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}",
-      "--decay-factor", "${DECAY_FACTOR:-0.995}",
-      "--check-interval-seconds", "${CHECK_INTERVAL_SECONDS:-30.0}",
-      "ESTX50", "EUREX", "EUR"
+      "SPX:CBOE:USD", "ESTX50:EUREX:EUR"
     ]
