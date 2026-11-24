@@ -244,3 +244,13 @@ class InteractiveBrokersClient:
                 and item.contract.localSymbol in target_local_symbols
             )
         )
+
+    def get_total_account_value(self) -> float:
+        return next(
+            (
+                float(account_value.value)
+                for account_value in self.interactive_brokers.accountValues()
+                if account_value.tag == "NetLiquidation"
+            ),
+            0.0,
+        )
