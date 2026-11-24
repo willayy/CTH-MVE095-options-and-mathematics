@@ -1,6 +1,7 @@
 import math
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 import ib_async.wrapper
 from ib_async import IB, Index, MarketOrder, Option, util
@@ -16,15 +17,17 @@ class InteractiveBrokersClient:
         self,
         host: str,
         port: int,
-        client_id: int,
+        client_identifier: int,
     ) -> None:
         self.host = host
         self.port = port
-        self.client_id = client_id
+        self.client_identifier = client_identifier
         self.interactive_brokers = IB()
 
     def check_connection(self) -> None:
-        self.interactive_brokers.connect(self.host, self.port, clientId=self.client_id)
+        self.interactive_brokers.connect(
+            self.host, self.port, clientId=self.client_identifier
+        )
         if not self.interactive_brokers.isConnected():
             raise ConnectionError("Failed to connect to Interactive Brokers.")
         self.interactive_brokers.reqMarketDataType(3)
@@ -68,12 +71,10 @@ class InteractiveBrokersClient:
         self.interactive_brokers.qualifyContracts(contract)
         market_data = self.interactive_brokers.reqMktData(contract, "", False, False)
         self.interactive_brokers.sleep(1.0)
-        current_price = market_data.marketPrice()
-        if math.isnan(current_price) or current_price <= 0.0:
-            current_price = market_data.close
-        if math.isnan(current_price) or current_price <= 0.0:
-            current_price = market_data.last
-        return float(current_price)
+        for price in (market_data.marketPrice(), market_data.close, market_data.last):
+            if not math.isnan(price) and price > 0.0:
+                return float(price)
+        return float("nan")
 
     def get_nearest_expiration(
         self,
@@ -90,22 +91,18 @@ class InteractiveBrokersClient:
             underlying_contract.conId,
         )
         now = datetime.now()
-        future_expirations = []
-        for chain in chains:
-            for expiration_string in chain.expirations:
-                expiration_datetime = datetime.strptime(
-                    expiration_string, "%Y%m%d"
-                ).replace(hour=16, minute=0, second=0)
-                if expiration_datetime > now:
-                    future_expirations.append(expiration_string)
-        if future_expirations:
-            return min(future_expirations)
         all_expirations = [
-            expiration_string
-            for chain in chains
-            for expiration_string in chain.expirations
+            expiration for chain in chains for expiration in chain.expirations
         ]
-        return min(all_expirations)
+        future_expirations = [
+            expiration
+            for expiration in all_expirations
+            if datetime.strptime(expiration, "%Y%m%d").replace(
+                hour=16, minute=0, second=0
+            )
+            > now
+        ]
+        return min(future_expirations) if future_expirations else min(all_expirations)
 
     def create_straddle(
         self,
@@ -123,32 +120,19 @@ class InteractiveBrokersClient:
             underlying_contract.secType,
             underlying_contract.conId,
         )
+        matching_chains = [
+            chain for chain in chains if expiration_date_string in chain.expirations
+        ]
         selected_chain = next(
             (
                 chain
-                for chain in chains
-                if expiration_date_string in chain.expirations
-                and chain.exchange == underlying_contract.exchange
+                for chain in matching_chains
+                if chain.exchange == underlying_contract.exchange
             ),
-            next(
-                (
-                    chain
-                    for chain in chains
-                    if expiration_date_string in chain.expirations
-                ),
-                chains[0],
-            ),
+            matching_chains[0] if matching_chains else chains[0],
         )
 
-        market_data = self.interactive_brokers.reqMktData(
-            underlying_contract, "", False, False
-        )
-        self.interactive_brokers.sleep(1.0)
-        current_price = market_data.marketPrice()
-        if math.isnan(current_price) or current_price <= 0.0:
-            current_price = market_data.close
-        if math.isnan(current_price) or current_price <= 0.0:
-            current_price = market_data.last
+        current_price = self.get_current_price(symbol, exchange, currency)
 
         closest_strike = min(
             selected_chain.strikes,
@@ -175,19 +159,13 @@ class InteractiveBrokersClient:
         )
         self.interactive_brokers.qualifyContracts(call_contract, put_contract)
 
-        contract_multiplier = (
-            float(call_contract.multiplier)
-            if getattr(call_contract, "multiplier", None)
-            else 100.0
-        )
-        contract_notional_value = closest_strike * contract_multiplier
-        if contract_notional_value <= 0.0:
+        multiplier = float(getattr(call_contract, "multiplier", 100.0) or 100.0)
+        notional_value = closest_strike * multiplier
+        if notional_value <= 0.0:
             raise ValueError(
-                f"Contract notional value must be positive, got {contract_notional_value}."
+                f"Contract notional value must be positive, got {notional_value}."
             )
-        order_quantity = max(
-            1, int(fixed_capital_amount_dollars / contract_notional_value)
-        )
+        order_quantity = max(1, int(fixed_capital_amount_dollars / notional_value))
 
         self.interactive_brokers.placeOrder(
             call_contract, MarketOrder("SELL", order_quantity, tif="DAY")
@@ -210,21 +188,59 @@ class InteractiveBrokersClient:
             put_contract, MarketOrder("BUY", order_quantity, tif="DAY")
         )
 
-    def get_position_pnl(
+    def fetch_straddle_from_portfolio(
+        self,
+        symbol: str,
+    ) -> tuple[Option, Option, int] | None:
+        portfolio_items = self.interactive_brokers.portfolio()
+        call_contract = next(
+            (
+                cast(Option, item.contract)
+                for item in portfolio_items
+                if getattr(item.contract, "symbol", "") == symbol
+                and item.position < 0
+                and getattr(item.contract, "right", "") == "C"
+            ),
+            None,
+        )
+        put_contract = next(
+            (
+                cast(Option, item.contract)
+                for item in portfolio_items
+                if getattr(item.contract, "symbol", "") == symbol
+                and item.position < 0
+                and getattr(item.contract, "right", "") == "P"
+            ),
+            None,
+        )
+        if call_contract is None or put_contract is None:
+            return None
+        order_quantity = next(
+            (
+                int(abs(item.position))
+                for item in portfolio_items
+                if item.contract.conId == call_contract.conId
+            ),
+            0,
+        )
+        return call_contract, put_contract, order_quantity
+
+    def get_position_profit_and_loss(
         self,
         call_contract: Option,
         put_contract: Option,
     ) -> float:
-        total_pnl = 0.0
-        target_con_ids = {call_contract.conId, put_contract.conId}
-        target_symbols = {
+        target_contract_identifiers = {call_contract.conId, put_contract.conId}
+        target_local_symbols = {
             getattr(call_contract, "localSymbol", ""),
             getattr(put_contract, "localSymbol", ""),
         }
-        for item in self.interactive_brokers.portfolio():
-            if item.contract.conId in target_con_ids or (
+        return sum(
+            float(item.unrealizedPNL)
+            for item in self.interactive_brokers.portfolio()
+            if item.contract.conId in target_contract_identifiers
+            or (
                 item.contract.localSymbol
-                and item.contract.localSymbol in target_symbols
-            ):
-                total_pnl += float(item.unrealizedPNL)
-        return total_pnl
+                and item.contract.localSymbol in target_local_symbols
+            )
+        )
