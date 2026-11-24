@@ -20,7 +20,7 @@ services:
 
   trading-bot:
     build:
-      context: ..
+      context: ....
       dockerfile: docker/Dockerfile
     restart: always
     depends_on:
@@ -28,6 +28,7 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
+      - ../data:/app/data
     command: [
       "python", "src/trading_bot.py",
       "--host", "ib-gateway",
