@@ -106,6 +106,9 @@ class TradingBot:
         active_position = self.active_positions.get(instrument.symbol)
         if active_position is not None and active_position.status == "OPEN":
             return
+        self.client.download_data(
+            instrument.symbol, instrument.exchange, instrument.currency
+        )
         current_price = self.client.get_current_price(
             instrument.symbol, instrument.exchange, instrument.currency
         )
