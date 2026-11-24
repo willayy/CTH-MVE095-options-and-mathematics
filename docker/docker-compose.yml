@@ -20,7 +20,7 @@ services:
 
   trading-bot:
     build:
-      context: ....
+      context: ..
       dockerfile: docker/Dockerfile
     restart: always
     depends_on:
