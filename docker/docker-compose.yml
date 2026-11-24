@@ -34,7 +34,7 @@ services:
       "--host", "ib-gateway",
       "--port", "4004",
       "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID:-10}",
-      "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-50000.0}",
+      "--fixed-capital-amount", "${FIXED_CAPITAL_AMOUNT_DOLLARS:-100000.0}",
       "--credibility-percentage", "${CREDIBILITY_INTERVAL_PERCENTAGE:-0.95}",
       "--decay-factor", "${DECAY_FACTOR:-0.995}",
       "--check-interval-seconds", "${CHECK_INTERVAL_SECONDS:-30.0}",
