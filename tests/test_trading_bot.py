@@ -271,7 +271,11 @@ def test_log_status_prints_profit_and_loss_and_count(capsys) -> None:
         0.0,
     )
     bot.client.get_position_profit_and_loss.return_value = 150.25
+    bot.client.get_total_account_value.return_value = 997702.64
 
     bot.log_status()
     captured = capsys.readouterr()
-    assert captured.out.strip() == "Current P/L: +150.25 | Open Positions: 1"
+    assert (
+        captured.out.strip()
+        == "Current Positions P/L: +150.25 | Total Account Value: 997702.64 | Open Positions: 1"
+    )
