@@ -30,7 +30,7 @@ def test_trading_bot_opens_position_when_it_should() -> None:
         "127.0.0.1",
         7497,
         10,
-        50000.0,
+        100000.0,
         0.95,
         0.995,
         3.0,
@@ -53,7 +53,7 @@ def test_trading_bot_opens_position_when_it_should() -> None:
         bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
         mock_bayesian_inference.assert_called_once_with("SPX", 5000.0, 0.95, 0.995)
         bot.client.create_straddle.assert_called_once_with(
-            "SPX", "CBOE", "USD", "20261119", 50000.0
+            "SPX", "CBOE", "USD", "20261119", 100000.0
         )
         assert "SPX" in bot.active_positions
         active_position = bot.active_positions["SPX"]
@@ -78,7 +78,7 @@ def test_trading_bot_neutralizes_when_it_should() -> None:
         "127.0.0.1",
         7497,
         10,
-        50000.0,
+        100000.0,
         0.95,
         0.995,
         3.0,
@@ -119,7 +119,7 @@ def test_trading_bot_opens_position_again() -> None:
         "127.0.0.1",
         7497,
         10,
-        50000.0,
+        100000.0,
         0.95,
         0.995,
         3.0,
@@ -155,7 +155,7 @@ def test_trading_bot_opens_position_again() -> None:
 
         mock_bayesian_inference.assert_called_once_with("SPX", 5150.0, 0.95, 0.995)
         bot.client.create_straddle.assert_called_once_with(
-            "SPX", "CBOE", "USD", "20261119", 50000.0
+            "SPX", "CBOE", "USD", "20261119", 100000.0
         )
         assert bot.active_positions["SPX"].lower_price == 5050.0
         assert bot.active_positions["SPX"].upper_price == 5250.0
@@ -175,7 +175,7 @@ def test_trading_bot_keeps_position_until_maturity() -> None:
         "127.0.0.1",
         7497,
         10,
-        50000.0,
+        100000.0,
         0.95,
         0.995,
         3.0,
@@ -215,7 +215,7 @@ def test_trading_bot_syncs_position_from_broker() -> None:
         "127.0.0.1",
         7497,
         10,
-        50000.0,
+        100000.0,
         0.95,
         0.995,
         3.0,
@@ -248,7 +248,7 @@ def test_log_status_prints_profit_and_loss_and_count(capsys) -> None:
         "127.0.0.1",
         7497,
         10,
-        50000.0,
+        100000.0,
         0.95,
         0.995,
         3.0,
