@@ -232,6 +232,7 @@ def test_trading_bot_syncs_position_from_broker() -> None:
     with patch("src.trading_bot.bayesian_inference", return_value=(4920.0, 5080.0)):
         bot.sync_positions_from_broker()
 
+    bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
     assert "SPX" in bot.active_positions
     assert bot.active_positions["SPX"].status == "OPEN"
     assert bot.active_positions["SPX"].order_quantity == 3
