@@ -57,10 +57,10 @@ def test_is_within_expiration_window() -> None:
         )
 
 
-def test_trade_opens_when_no_position_open() -> None:
-    instruments = [Instrument("SPX", "CBOE", "USD")]
+def test_check_opening_conditions_and_open_position() -> None:
+    instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
-        instruments,
+        [instrument],
         "127.0.0.1",
         7497,
         10,
@@ -83,7 +83,8 @@ def test_trade_opens_when_no_position_open() -> None:
             "src.trading_bot.bayesian_inference", return_value=(4900.0, 5100.0)
         ) as mock_bayesian_inference,
     ):
-        bot.trade()
+        assert bot.check_opening_conditions(instrument) is True
+        bot.open_position(instrument)
 
         bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
         mock_bayesian_inference.assert_called_once_with("SPX", 5000.0, 0.95, 0.995)
@@ -100,10 +101,10 @@ def test_trade_opens_when_no_position_open() -> None:
         assert boundary.expiration_date == "20991119"
 
 
-def test_trade_does_not_open_when_position_already_open() -> None:
-    instruments = [Instrument("SPX", "CBOE", "USD")]
+def test_check_opening_conditions_returns_false_when_position_already_open() -> None:
+    instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
-        instruments,
+        [instrument],
         "127.0.0.1",
         7497,
         10,
@@ -121,15 +122,15 @@ def test_trade_does_not_open_when_position_already_open() -> None:
         4900.0, 5100.0, call_contract, put_contract, 2, "20991119"
     )
 
-    bot.trade()
-
-    assert bot.client.create_straddle.call_count == 0
+    assert bot.check_opening_conditions(instrument) is False
 
 
-def test_check_active_boundaries_neutralizes_when_bounds_breached() -> None:
-    instruments = [Instrument("SPX", "CBOE", "USD")]
+def test_check_closing_conditions_and_close_position_neutralizes_when_bounds_breached() -> (
+    None
+):
+    instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
-        instruments,
+        [instrument],
         "127.0.0.1",
         7497,
         10,
@@ -146,7 +147,8 @@ def test_check_active_boundaries_neutralizes_when_bounds_breached() -> None:
     )
     bot.client.get_current_price.return_value = 5150.0
 
-    bot.check_active_boundaries()
+    assert bot.check_closing_conditions(instrument) is True
+    bot.close_position(instrument)
 
     bot.client.neutralize_straddle.assert_called_once_with(
         call_contract, put_contract, 2
@@ -154,10 +156,10 @@ def test_check_active_boundaries_neutralizes_when_bounds_breached() -> None:
     assert "SPX" not in bot.active_boundaries
 
 
-def test_check_active_boundaries_clears_expired_boundary() -> None:
-    instruments = [Instrument("SPX", "CBOE", "USD")]
+def test_check_closing_conditions_and_close_position_clears_expired_boundary() -> None:
+    instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
-        instruments,
+        [instrument],
         "127.0.0.1",
         7497,
         10,
@@ -173,16 +175,17 @@ def test_check_active_boundaries_clears_expired_boundary() -> None:
         2900.0, 3100.0, call_contract, put_contract, 2, "20200101"
     )
 
-    bot.check_active_boundaries()
+    assert bot.check_closing_conditions(instrument) is True
+    bot.close_position(instrument)
 
     assert "SPX" not in bot.active_boundaries
     assert bot.client.neutralize_straddle.call_count == 0
 
 
-def test_trade_recovers_boundary_on_restart() -> None:
-    instruments = [Instrument("SPX", "CBOE", "USD")]
+def test_check_opening_conditions_recovers_boundary_on_restart() -> None:
+    instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
-        instruments,
+        [instrument],
         "127.0.0.1",
         7497,
         10,
@@ -200,7 +203,7 @@ def test_trade_recovers_boundary_on_restart() -> None:
     bot.client.get_current_price.return_value = 5000.0
 
     with patch("src.trading_bot.bayesian_inference", return_value=(4920.0, 5080.0)):
-        bot.trade()
+        assert bot.check_opening_conditions(instrument) is False
 
     bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
     assert "SPX" in bot.active_boundaries
