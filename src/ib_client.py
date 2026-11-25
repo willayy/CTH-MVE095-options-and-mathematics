@@ -104,6 +104,26 @@ class InteractiveBrokersClient:
         ]
         return min(future_expirations) if future_expirations else min(all_expirations)
 
+    def select_boundary_strikes(
+        self,
+        strikes: list[float],
+        lower_price: float,
+        upper_price: float,
+    ) -> tuple[float, float]:
+        eligible_put_strikes = [
+            strike_price for strike_price in strikes if strike_price <= lower_price
+        ]
+        put_strike = max(eligible_put_strikes) if eligible_put_strikes else min(strikes)
+
+        eligible_call_strikes = [
+            strike_price for strike_price in strikes if strike_price >= upper_price
+        ]
+        call_strike = (
+            min(eligible_call_strikes) if eligible_call_strikes else max(strikes)
+        )
+
+        return call_strike, put_strike
+
     def create_straddle(
         self,
         symbol: str,
@@ -111,6 +131,8 @@ class InteractiveBrokersClient:
         currency: str,
         expiration_date_string: str,
         fixed_capital_amount_dollars: float,
+        lower_price: float,
+        upper_price: float,
     ) -> tuple[Option, Option, int]:
         underlying_contract = Index(symbol, exchange, currency)
         self.interactive_brokers.qualifyContracts(underlying_contract)
@@ -132,17 +154,14 @@ class InteractiveBrokersClient:
             matching_chains[0] if matching_chains else chains[0],
         )
 
-        current_price = self.get_current_price(symbol, exchange, currency)
-
-        closest_strike = min(
-            selected_chain.strikes,
-            key=lambda strike_price: abs(strike_price - current_price),
+        call_strike, put_strike = self.select_boundary_strikes(
+            selected_chain.strikes, lower_price, upper_price
         )
 
         call_contract = Option(
             underlying_contract.symbol,
             expiration_date_string,
-            closest_strike,
+            call_strike,
             "C",
             underlying_contract.exchange,
             currency=underlying_contract.currency,
@@ -151,7 +170,7 @@ class InteractiveBrokersClient:
         put_contract = Option(
             underlying_contract.symbol,
             expiration_date_string,
-            closest_strike,
+            put_strike,
             "P",
             underlying_contract.exchange,
             currency=underlying_contract.currency,
@@ -160,7 +179,8 @@ class InteractiveBrokersClient:
         self.interactive_brokers.qualifyContracts(call_contract, put_contract)
 
         multiplier = float(getattr(call_contract, "multiplier", 100.0) or 100.0)
-        notional_value = closest_strike * multiplier
+        average_strike = (call_strike + put_strike) / 2.0
+        notional_value = average_strike * multiplier
         if notional_value <= 0.0:
             raise ValueError(
                 f"Contract notional value must be positive, got {notional_value}."
