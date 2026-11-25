@@ -24,7 +24,7 @@ def test_parse_instrument() -> None:
     assert instrument.currency == "USD"
 
 
-def test_is_within_twenty_four_hours() -> None:
+def test_is_within_expiration_window() -> None:
     instruments = [Instrument("SPX", "CBOE", "USD")]
     bot = TradingBot(
         instruments,
@@ -42,12 +42,12 @@ def test_is_within_twenty_four_hours() -> None:
         mock_datetime.now.return_value = datetime.strptime(
             target_date, "%Y%m%d"
         ).replace(hour=10, minute=0, second=0)
-        assert bot.is_within_twenty_four_hours(target_date) is True
+        assert bot.is_within_expiration_window(target_date, 24.0 * 3600.0) is True
 
         mock_datetime.now.return_value = datetime.strptime(
             target_date, "%Y%m%d"
         ).replace(hour=17, minute=0, second=0)
-        assert bot.is_within_twenty_four_hours(target_date) is False
+        assert bot.is_within_expiration_window(target_date, 24.0 * 3600.0) is False
 
 
 def test_check_and_trade_opens_when_no_position_open() -> None:
@@ -71,7 +71,7 @@ def test_check_and_trade_opens_when_no_position_open() -> None:
     bot.client.create_straddle.return_value = (call_contract, put_contract, 2)
 
     with (
-        patch.object(bot, "is_within_twenty_four_hours", return_value=True),
+        patch.object(bot, "is_within_expiration_window", return_value=True),
         patch(
             "src.trading_bot.bayesian_inference", return_value=(4900.0, 5100.0)
         ) as mock_bayesian_inference,
