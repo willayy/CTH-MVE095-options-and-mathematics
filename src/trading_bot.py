@@ -59,13 +59,16 @@ class TradingBot:
     def is_within_expiration_window(
         self,
         expiration_date: str,
+        minimum_window_seconds: float,
         maximum_window_seconds: float,
     ) -> bool:
         expiration_time = datetime.strptime(expiration_date, "%Y%m%d").replace(
             hour=16, minute=0, second=0
         )
         seconds_until_expiration = (expiration_time - datetime.now()).total_seconds()
-        return 0.0 < seconds_until_expiration <= maximum_window_seconds
+        return (
+            minimum_window_seconds <= seconds_until_expiration <= maximum_window_seconds
+        )
 
     def check_active_boundaries(self) -> None:
         for instrument in self.instruments:
@@ -103,7 +106,9 @@ class TradingBot:
         return (
             not self.client.has_open_position(instrument.symbol, nearest_expiration)
             and expiration_key not in self.opened_expirations
-            and self.is_within_expiration_window(nearest_expiration, 24.0 * 3600.0)
+            and self.is_within_expiration_window(
+                nearest_expiration, 23.5 * 3600.0, 24.0 * 3600.0
+            )
         )
 
     def open_straddle(
