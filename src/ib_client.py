@@ -201,42 +201,38 @@ class InteractiveBrokersClient:
             for item in self.interactive_brokers.portfolio()
         )
 
+    def find_portfolio_option(
+        self,
+        symbol: str,
+        expiration_date_string: str,
+        option_right: str,
+    ) -> Option | None:
+        return next(
+            (
+                cast(Option, item.contract)
+                for item in self.interactive_brokers.portfolio()
+                if getattr(item.contract, "symbol", "") == symbol
+                and getattr(item.contract, "lastTradeDateOrContractMonth", "")
+                == expiration_date_string
+                and item.position < 0
+                and getattr(item.contract, "right", "") == option_right
+            ),
+            None,
+        )
+
     def fetch_open_straddle(
         self,
         symbol: str,
         expiration_date_string: str,
     ) -> tuple[Option, Option, int] | None:
-        portfolio_items = self.interactive_brokers.portfolio()
-        call_contract = next(
-            (
-                cast(Option, item.contract)
-                for item in portfolio_items
-                if getattr(item.contract, "symbol", "") == symbol
-                and getattr(item.contract, "lastTradeDateOrContractMonth", "")
-                == expiration_date_string
-                and item.position < 0
-                and getattr(item.contract, "right", "") == "C"
-            ),
-            None,
-        )
-        put_contract = next(
-            (
-                cast(Option, item.contract)
-                for item in portfolio_items
-                if getattr(item.contract, "symbol", "") == symbol
-                and getattr(item.contract, "lastTradeDateOrContractMonth", "")
-                == expiration_date_string
-                and item.position < 0
-                and getattr(item.contract, "right", "") == "P"
-            ),
-            None,
-        )
+        call_contract = self.find_portfolio_option(symbol, expiration_date_string, "C")
+        put_contract = self.find_portfolio_option(symbol, expiration_date_string, "P")
         if call_contract is None or put_contract is None:
             return None
         order_quantity = next(
             (
                 int(abs(item.position))
-                for item in portfolio_items
+                for item in self.interactive_brokers.portfolio()
                 if item.contract.conId == call_contract.conId
             ),
             0,
