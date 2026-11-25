@@ -188,74 +188,71 @@ class InteractiveBrokersClient:
             put_contract, MarketOrder("BUY", order_quantity, tif="DAY")
         )
 
-    def fetch_straddles_from_portfolio(
+    def has_open_position(
         self,
         symbol: str,
-    ) -> list[tuple[Option, Option, int]]:
-        portfolio_items = self.interactive_brokers.portfolio()
-        expiration_dates = {
-            getattr(item.contract, "lastTradeDateOrContractMonth", "")
-            for item in portfolio_items
-            if getattr(item.contract, "symbol", "") == symbol and item.position < 0
-        }
-        expiration_dates.discard("")
-        straddles: list[tuple[Option, Option, int]] = []
-        for expiration_date in sorted(expiration_dates):
-            call_contract = next(
-                (
-                    cast(Option, item.contract)
-                    for item in portfolio_items
-                    if getattr(item.contract, "symbol", "") == symbol
-                    and getattr(item.contract, "lastTradeDateOrContractMonth", "")
-                    == expiration_date
-                    and item.position < 0
-                    and getattr(item.contract, "right", "") == "C"
-                ),
-                None,
-            )
-            put_contract = next(
-                (
-                    cast(Option, item.contract)
-                    for item in portfolio_items
-                    if getattr(item.contract, "symbol", "") == symbol
-                    and getattr(item.contract, "lastTradeDateOrContractMonth", "")
-                    == expiration_date
-                    and item.position < 0
-                    and getattr(item.contract, "right", "") == "P"
-                ),
-                None,
-            )
-            if call_contract is None or put_contract is None:
-                continue
-            order_quantity = next(
-                (
-                    int(abs(item.position))
-                    for item in portfolio_items
-                    if item.contract.conId == call_contract.conId
-                ),
-                0,
-            )
-            straddles.append((call_contract, put_contract, order_quantity))
-        return straddles
-
-    def get_position_profit_and_loss(
-        self,
-        call_contract: Option,
-        put_contract: Option,
-    ) -> float:
-        target_contract_identifiers = {call_contract.conId, put_contract.conId}
-        target_local_symbols = {
-            getattr(call_contract, "localSymbol", ""),
-            getattr(put_contract, "localSymbol", ""),
-        }
-        return sum(
-            float(item.unrealizedPNL)
+        expiration_date_string: str,
+    ) -> bool:
+        return any(
+            getattr(item.contract, "symbol", "") == symbol
+            and getattr(item.contract, "lastTradeDateOrContractMonth", "")
+            == expiration_date_string
+            and item.position < 0
             for item in self.interactive_brokers.portfolio()
-            if item.contract.conId in target_contract_identifiers
-            or (
-                item.contract.localSymbol
-                and item.contract.localSymbol in target_local_symbols
-            )
+        )
+
+    def fetch_open_straddle(
+        self,
+        symbol: str,
+        expiration_date_string: str,
+    ) -> tuple[Option, Option, int] | None:
+        portfolio_items = self.interactive_brokers.portfolio()
+        call_contract = next(
+            (
+                cast(Option, item.contract)
+                for item in portfolio_items
+                if getattr(item.contract, "symbol", "") == symbol
+                and getattr(item.contract, "lastTradeDateOrContractMonth", "")
+                == expiration_date_string
+                and item.position < 0
+                and getattr(item.contract, "right", "") == "C"
+            ),
+            None,
+        )
+        put_contract = next(
+            (
+                cast(Option, item.contract)
+                for item in portfolio_items
+                if getattr(item.contract, "symbol", "") == symbol
+                and getattr(item.contract, "lastTradeDateOrContractMonth", "")
+                == expiration_date_string
+                and item.position < 0
+                and getattr(item.contract, "right", "") == "P"
+            ),
+            None,
+        )
+        if call_contract is None or put_contract is None:
+            return None
+        order_quantity = next(
+            (
+                int(abs(item.position))
+                for item in portfolio_items
+                if item.contract.conId == call_contract.conId
+            ),
+            0,
+        )
+        return call_contract, put_contract, order_quantity
+
+    def get_total_unrealized_profit_and_loss(self) -> float:
+        return sum(
+            float(item.unrealizedPNL) for item in self.interactive_brokers.portfolio()
+        )
+
+    def get_open_straddles_count(self) -> int:
+        return sum(
+            1
+            for item in self.interactive_brokers.portfolio()
+            if item.position < 0 and getattr(item.contract, "right", "") == "C"
         )
 
     def get_total_account_value(self) -> float:
