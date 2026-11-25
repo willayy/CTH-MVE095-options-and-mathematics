@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.ib_client import InteractiveBrokersClient
 from src.main import parse_instrument
 from src.trading_bot import (
     ActiveBoundary,
@@ -57,6 +58,30 @@ def test_is_within_expiration_window() -> None:
         )
 
 
+def test_select_boundary_strikes() -> None:
+    client = InteractiveBrokersClient("127.0.0.1", 7497, 1)
+    strikes = [4800.0, 4850.0, 4900.0, 4950.0, 5000.0, 5050.0, 5100.0, 5150.0, 5200.0]
+    call_strike, put_strike = client.select_boundary_strikes(strikes, 4920.0, 5080.0)
+    assert put_strike == 4900.0
+    assert call_strike == 5100.0
+
+
+def test_select_boundary_strikes_on_exact_boundary() -> None:
+    client = InteractiveBrokersClient("127.0.0.1", 7497, 1)
+    strikes = [4800.0, 4900.0, 5000.0, 5100.0, 5200.0]
+    call_strike, put_strike = client.select_boundary_strikes(strikes, 4900.0, 5100.0)
+    assert put_strike == 4900.0
+    assert call_strike == 5100.0
+
+
+def test_select_boundary_strikes_fallback_when_outside_available_strikes() -> None:
+    client = InteractiveBrokersClient("127.0.0.1", 7497, 1)
+    strikes = [4900.0, 5000.0, 5100.0]
+    call_strike, put_strike = client.select_boundary_strikes(strikes, 4700.0, 5300.0)
+    assert put_strike == 4900.0
+    assert call_strike == 5100.0
+
+
 def test_check_opening_conditions_and_open_position() -> None:
     instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
@@ -73,8 +98,8 @@ def test_check_opening_conditions_and_open_position() -> None:
     bot.client.get_nearest_expiration.return_value = "20991119"
     bot.client.has_open_position.return_value = False
     bot.client.get_current_price.return_value = 5000.0
-    call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
-    put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
+    call_contract = Option("SPX", "20991119", 5100.0, "C", "CBOE", currency="USD")
+    put_contract = Option("SPX", "20991119", 4900.0, "P", "CBOE", currency="USD")
     bot.client.create_straddle.return_value = (call_contract, put_contract, 2)
 
     with (
@@ -89,7 +114,7 @@ def test_check_opening_conditions_and_open_position() -> None:
         bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
         mock_bayesian_inference.assert_called_once_with("SPX", 5000.0, 0.95, 0.995)
         bot.client.create_straddle.assert_called_once_with(
-            "SPX", "CBOE", "USD", "20991119", 100000.0
+            "SPX", "CBOE", "USD", "20991119", 100000.0, 4900.0, 5100.0
         )
         assert "SPX" in bot.active_boundaries
         boundary = bot.active_boundaries["SPX"]
