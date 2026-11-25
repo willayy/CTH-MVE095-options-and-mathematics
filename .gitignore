@@ -9,3 +9,4 @@ literature
 .env
 *.env
 docker/.env
+report/figures/
