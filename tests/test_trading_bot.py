@@ -1,5 +1,4 @@
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -26,9 +25,9 @@ def test_parse_instrument() -> None:
 
 
 def test_is_within_expiration_window() -> None:
-    instruments = [Instrument("SPX", "CBOE", "USD")]
+    instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
-        instruments,
+        [instrument],
         "127.0.0.1",
         7497,
         10,
@@ -37,25 +36,41 @@ def test_is_within_expiration_window() -> None:
         0.995,
         3.0,
     )
-    target_date = (datetime.now() + timedelta(days=1)).strftime("%Y%m%d")
-    with patch("src.trading_bot.datetime") as mock_datetime:
-        mock_datetime.strptime = datetime.strptime
-
-        mock_datetime.now.return_value = datetime.strptime(
-            target_date, "%Y%m%d"
-        ).replace(hour=16, minute=0, second=0) - timedelta(hours=23, minutes=48)
-        assert (
-            bot.is_within_expiration_window(target_date, 23.5 * 3600.0, 24.0 * 3600.0)
-            is True
+    bot.client = MagicMock()
+    bot.client.get_seconds_until_expiration.return_value = 23.8 * 3600.0
+    assert (
+        bot.is_within_expiration_window(
+            instrument, "20991119", 23.5 * 3600.0, 24.0 * 3600.0
         )
+        is True
+    )
 
-        mock_datetime.now.return_value = datetime.strptime(
-            target_date, "%Y%m%d"
-        ).replace(hour=16, minute=0, second=0) - timedelta(hours=6)
-        assert (
-            bot.is_within_expiration_window(target_date, 23.5 * 3600.0, 24.0 * 3600.0)
-            is False
+    bot.client.get_seconds_until_expiration.return_value = 6.0 * 3600.0
+    assert (
+        bot.is_within_expiration_window(
+            instrument, "20991119", 23.5 * 3600.0, 24.0 * 3600.0
         )
+        is False
+    )
+
+
+def test_is_contract_expired() -> None:
+    client = InteractiveBrokersClient("127.0.0.1", 7497, 1)
+    client.interactive_brokers = MagicMock()
+    mock_details = MagicMock()
+    mock_details.realExpirationDate = "20200101"
+    mock_details.lastTradeTime = "16:00:00"
+    mock_details.timeZoneId = "UTC"
+    client.interactive_brokers.reqContractDetails.return_value = [mock_details]
+
+    option = Option("SPX", "20200101", 5000.0, "C", "CBOE")
+    assert client.is_contract_expired(option) is True
+
+    mock_details.realExpirationDate = "20990101"
+    assert client.is_contract_expired(option) is False
+
+    mock_details.lastTradeTime = ""
+    assert client.is_contract_expired(option) is True
 
 
 def test_select_boundary_strikes() -> None:
@@ -166,7 +181,9 @@ def test_check_closing_conditions_and_close_position_neutralizes_when_bounds_bre
     bot.active_boundaries["SPX"] = ActiveBoundary(
         4900.0, 5100.0, call_contract, put_contract, 2, "20991119"
     )
+    bot.client.is_contract_expired.return_value = False
     bot.client.get_current_price.return_value = 5150.0
+    bot.client.has_open_position.return_value = True
 
     assert bot.check_closing_conditions(instrument) is True
     bot.close_position(instrument)
@@ -177,7 +194,7 @@ def test_check_closing_conditions_and_close_position_neutralizes_when_bounds_bre
     assert "SPX" not in bot.active_boundaries
 
 
-def test_check_closing_conditions_and_close_position_clears_expired_boundary() -> None:
+def test_check_closing_conditions_disregards_expired_contract() -> None:
     instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
         [instrument],
@@ -195,10 +212,9 @@ def test_check_closing_conditions_and_close_position_clears_expired_boundary() -
     bot.active_boundaries["SPX"] = ActiveBoundary(
         2900.0, 3100.0, call_contract, put_contract, 2, "20200101"
     )
+    bot.client.is_contract_expired.return_value = True
 
-    assert bot.check_closing_conditions(instrument) is True
-    bot.close_position(instrument)
-
+    assert bot.check_closing_conditions(instrument) is False
     assert "SPX" not in bot.active_boundaries
     assert bot.client.neutralize_straddle.call_count == 0
 
@@ -221,6 +237,7 @@ def test_check_closing_conditions_recovers_boundary_on_restart() -> None:
     call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
     put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
     bot.client.fetch_open_straddle.return_value = (call_contract, put_contract, 2)
+    bot.client.is_contract_expired.return_value = False
     bot.client.get_current_price.return_value = 5000.0
 
     with patch("src.trading_bot.bayesian_inference", return_value=(4920.0, 5080.0)):
