@@ -2,6 +2,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 from typing import cast
+from zoneinfo import ZoneInfo
 
 import ib_async.wrapper
 from ib_async import IB, Index, MarketOrder, Option, util
@@ -90,19 +91,55 @@ class InteractiveBrokersClient:
             underlying_contract.secType,
             underlying_contract.conId,
         )
-        now = datetime.now()
+        today_date_string = datetime.now().strftime("%Y%m%d")
         all_expirations = [
             expiration for chain in chains for expiration in chain.expirations
         ]
-        future_expirations = [
+        future_or_today_expirations = [
             expiration
             for expiration in all_expirations
-            if datetime.strptime(expiration, "%Y%m%d").replace(
-                hour=16, minute=0, second=0
-            )
-            > now
+            if expiration >= today_date_string
         ]
-        return min(future_expirations) if future_expirations else min(all_expirations)
+        return (
+            min(future_or_today_expirations)
+            if future_or_today_expirations
+            else min(all_expirations)
+        )
+
+    def get_seconds_until_expiration(
+        self,
+        symbol: str,
+        exchange: str,
+        currency: str,
+        expiration_date_string: str,
+    ) -> float:
+        option_contract = Option(
+            symbol, expiration_date_string, exchange=exchange, currency=currency
+        )
+        contract_details_list = self.interactive_brokers.reqContractDetails(
+            option_contract
+        )
+        if not contract_details_list or not contract_details_list[0].lastTradeTime:
+            return 0.0
+        details = contract_details_list[0]
+        contract_timezone = ZoneInfo(details.timeZoneId)
+        expiration_datetime = datetime.strptime(
+            f"{details.realExpirationDate} {details.lastTradeTime}",
+            "%Y%m%d %H:%M:%S",
+        ).replace(tzinfo=contract_timezone)
+        return (expiration_datetime - datetime.now(contract_timezone)).total_seconds()
+
+    def is_contract_expired(self, contract: Option) -> bool:
+        contract_details_list = self.interactive_brokers.reqContractDetails(contract)
+        if not contract_details_list or not contract_details_list[0].lastTradeTime:
+            return True
+        details = contract_details_list[0]
+        contract_timezone = ZoneInfo(details.timeZoneId)
+        expiration_datetime = datetime.strptime(
+            f"{details.realExpirationDate} {details.lastTradeTime}",
+            "%Y%m%d %H:%M:%S",
+        ).replace(tzinfo=contract_timezone)
+        return datetime.now(contract_timezone) >= expiration_datetime
 
     def select_boundary_strikes(
         self,
