@@ -36,18 +36,25 @@ def test_is_within_expiration_window() -> None:
         0.995,
         3.0,
     )
-    target_date = (datetime.now() + timedelta(hours=10)).strftime("%Y%m%d")
+    target_date = (datetime.now() + timedelta(days=1)).strftime("%Y%m%d")
     with patch("src.trading_bot.datetime") as mock_datetime:
         mock_datetime.strptime = datetime.strptime
-        mock_datetime.now.return_value = datetime.strptime(
-            target_date, "%Y%m%d"
-        ).replace(hour=10, minute=0, second=0)
-        assert bot.is_within_expiration_window(target_date, 24.0 * 3600.0) is True
 
         mock_datetime.now.return_value = datetime.strptime(
             target_date, "%Y%m%d"
-        ).replace(hour=17, minute=0, second=0)
-        assert bot.is_within_expiration_window(target_date, 24.0 * 3600.0) is False
+        ).replace(hour=16, minute=0, second=0) - timedelta(hours=23, minutes=48)
+        assert (
+            bot.is_within_expiration_window(target_date, 23.5 * 3600.0, 24.0 * 3600.0)
+            is True
+        )
+
+        mock_datetime.now.return_value = datetime.strptime(
+            target_date, "%Y%m%d"
+        ).replace(hour=16, minute=0, second=0) - timedelta(hours=6)
+        assert (
+            bot.is_within_expiration_window(target_date, 23.5 * 3600.0, 24.0 * 3600.0)
+            is False
+        )
 
 
 def test_trade_opens_when_no_position_open() -> None:
