@@ -48,7 +48,7 @@ def test_trading_bot_opens_position_when_it_should() -> None:
             "src.trading_bot.bayesian_inference", return_value=(4900.0, 5100.0)
         ) as mock_bayesian_inference,
     ):
-        bot.open_new_positions()
+        bot.maybe_open_new_positions()
 
         bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
         mock_bayesian_inference.assert_called_once_with("SPX", 5000.0, 0.95, 0.995)
@@ -151,7 +151,7 @@ def test_trading_bot_opens_position_again() -> None:
             "src.trading_bot.bayesian_inference", return_value=(5050.0, 5250.0)
         ) as mock_bayesian_inference,
     ):
-        bot.open_new_positions()
+        bot.maybe_open_new_positions()
 
         mock_bayesian_inference.assert_called_once_with("SPX", 5150.0, 0.95, 0.995)
         bot.client.create_straddle.assert_called_once_with(
