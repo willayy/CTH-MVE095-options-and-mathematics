@@ -141,13 +141,9 @@ def test_check_opening_conditions_returns_false_when_position_already_open() -> 
     bot.client = MagicMock()
     bot.client.get_nearest_expiration.return_value = "20991119"
     bot.client.has_open_position.return_value = True
-    call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
-    put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
-    bot.active_boundaries["SPX"] = ActiveBoundary(
-        4900.0, 5100.0, call_contract, put_contract, 2, "20991119"
-    )
 
-    assert bot.check_opening_conditions(instrument) is False
+    with patch.object(bot, "is_within_expiration_window", return_value=True):
+        assert bot.check_opening_conditions(instrument) is False
 
 
 def test_check_closing_conditions_and_close_position_neutralizes_when_bounds_breached() -> (
@@ -207,7 +203,7 @@ def test_check_closing_conditions_and_close_position_clears_expired_boundary() -
     assert bot.client.neutralize_straddle.call_count == 0
 
 
-def test_check_opening_conditions_recovers_boundary_on_restart() -> None:
+def test_check_closing_conditions_recovers_boundary_on_restart() -> None:
     instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
         [instrument],
@@ -228,7 +224,7 @@ def test_check_opening_conditions_recovers_boundary_on_restart() -> None:
     bot.client.get_current_price.return_value = 5000.0
 
     with patch("src.trading_bot.bayesian_inference", return_value=(4920.0, 5080.0)):
-        assert bot.check_opening_conditions(instrument) is False
+        assert bot.check_closing_conditions(instrument) is False
 
     bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
     assert "SPX" in bot.active_boundaries
