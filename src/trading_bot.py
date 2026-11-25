@@ -56,12 +56,16 @@ class TradingBot:
         self.active_boundaries: dict[str, ActiveBoundary] = {}
         self.opened_expirations: set[tuple[str, str]] = set()
 
-    def is_within_twenty_four_hours(self, expiration_date: str) -> bool:
+    def is_within_expiration_window(
+        self,
+        expiration_date: str,
+        maximum_window_seconds: float,
+    ) -> bool:
         expiration_time = datetime.strptime(expiration_date, "%Y%m%d").replace(
             hour=16, minute=0, second=0
         )
         seconds_until_expiration = (expiration_time - datetime.now()).total_seconds()
-        return 0.0 < seconds_until_expiration <= 24.0 * 3600.0
+        return 0.0 < seconds_until_expiration <= maximum_window_seconds
 
     def check_and_trade(self) -> None:
         for instrument in self.instruments:
@@ -129,7 +133,7 @@ class TradingBot:
             if expiration_key in self.opened_expirations:
                 continue
 
-            if self.is_within_twenty_four_hours(nearest_expiration):
+            if self.is_within_expiration_window(nearest_expiration, 24.0 * 3600.0):
                 self.client.download_data(
                     instrument.symbol, instrument.exchange, instrument.currency
                 )
