@@ -20,7 +20,7 @@ class Instrument:
 
 
 @dataclass
-class ActiveBoundary:
+class Position:
     lower_price: float
     upper_price: float
     call_contract: Option
@@ -52,7 +52,7 @@ class TradingBot:
         self.client = InteractiveBrokersClient(
             host_address, port_number, client_identifier
         )
-        self.active_boundaries: dict[str, ActiveBoundary] = {}
+        self.positions: dict[str, Position] = {}
 
     def is_within_expiration_window(
         self,
@@ -71,7 +71,7 @@ class TradingBot:
             minimum_window_seconds <= seconds_until_expiration <= maximum_window_seconds
         )
 
-    def recover_boundary(
+    def recover_position(
         self,
         instrument: Instrument,
         nearest_expiration: str,
@@ -94,7 +94,7 @@ class TradingBot:
             self.credibility_interval_percentage,
             self.decay_factor,
         )
-        self.active_boundaries[instrument.symbol] = ActiveBoundary(
+        self.positions[instrument.symbol] = Position(
             lower_price,
             upper_price,
             call_contract,
@@ -136,7 +136,7 @@ class TradingBot:
             lower_price,
             upper_price,
         )
-        self.active_boundaries[instrument.symbol] = ActiveBoundary(
+        self.positions[instrument.symbol] = Position(
             lower_price,
             upper_price,
             call_contract,
@@ -146,42 +146,42 @@ class TradingBot:
         )
 
     def check_closing_conditions(self, instrument: Instrument) -> bool:
-        if instrument.symbol not in self.active_boundaries:
+        if instrument.symbol not in self.positions:
             nearest_expiration = self.client.get_nearest_expiration(
                 instrument.symbol, instrument.exchange, instrument.currency
             )
             if self.client.has_open_position(instrument.symbol, nearest_expiration):
-                self.recover_boundary(instrument, nearest_expiration)
+                self.recover_position(instrument, nearest_expiration)
             else:
                 return False
 
-        boundary = self.active_boundaries.get(instrument.symbol)
-        if boundary is None:
+        position = self.positions.get(instrument.symbol)
+        if position is None:
             return False
 
-        if self.client.is_contract_expired(boundary.call_contract):
-            del self.active_boundaries[instrument.symbol]
+        if self.client.is_contract_expired(position.call_contract):
+            del self.positions[instrument.symbol]
             return False
 
         current_price = self.client.get_current_price(
             instrument.symbol, instrument.exchange, instrument.currency
         )
         return (
-            current_price < boundary.lower_price or current_price > boundary.upper_price
+            current_price < position.lower_price or current_price > position.upper_price
         )
 
     def close_position(self, instrument: Instrument) -> None:
-        boundary = self.active_boundaries.get(instrument.symbol)
-        if boundary is None:
+        position = self.positions.get(instrument.symbol)
+        if position is None:
             return
 
-        if self.client.has_open_position(instrument.symbol, boundary.expiration_date):
+        if self.client.has_open_position(instrument.symbol, position.expiration_date):
             self.client.neutralize_straddle(
-                boundary.call_contract,
-                boundary.put_contract,
-                boundary.order_quantity,
+                position.call_contract,
+                position.put_contract,
+                position.order_quantity,
             )
-        del self.active_boundaries[instrument.symbol]
+        del self.positions[instrument.symbol]
 
     def log_status(self) -> None:
         total_profit_and_loss = self.client.get_total_unrealized_profit_and_loss()
