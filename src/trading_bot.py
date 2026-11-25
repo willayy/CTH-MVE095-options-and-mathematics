@@ -59,7 +59,7 @@ class TradingBot:
         self.client = InteractiveBrokersClient(
             host_address, port_number, client_identifier
         )
-        self.active_positions: dict[str, Position] = {}
+        self.active_positions: dict[tuple[str, str], Position] = {}
 
     def is_maturity_within_check_window(
         self,
@@ -69,7 +69,7 @@ class TradingBot:
             hour=16, minute=0, second=0
         )
         seconds_until_expiration = (expiration_time - datetime.now()).total_seconds()
-        return abs(seconds_until_expiration - 24.0 * 3600.0) <= 300.0
+        return 0.0 < seconds_until_expiration <= 24.0 * 3600.0
 
     def _create_position(
         self,
@@ -102,8 +102,16 @@ class TradingBot:
         straddle_components: tuple[Option, Option, int],
     ) -> None:
         call_contract, put_contract, order_quantity = straddle_components
-        active_position = self.active_positions.get(instrument.symbol)
-        if active_position is not None and active_position.status == "OPEN":
+        expiration_date = getattr(call_contract, "lastTradeDateOrContractMonth", "")
+        if not expiration_date:
+            return
+        position_key = (instrument.symbol, expiration_date)
+        if position_key in self.active_positions:
+            return
+        expiration_time = datetime.strptime(expiration_date, "%Y%m%d").replace(
+            hour=16, minute=0, second=0
+        )
+        if datetime.now() >= expiration_time:
             return
         self.client.download_data(
             instrument.symbol, instrument.exchange, instrument.currency
@@ -117,8 +125,7 @@ class TradingBot:
             self.credibility_interval_percentage,
             self.decay_factor,
         )
-        expiration_date = getattr(call_contract, "lastTradeDateOrContractMonth", "")
-        self.active_positions[instrument.symbol] = self._create_position(
+        self.active_positions[position_key] = self._create_position(
             instrument,
             lower_price,
             upper_price,
@@ -130,24 +137,48 @@ class TradingBot:
 
     def sync_positions_from_broker(self) -> None:
         for instrument in self.instruments:
-            straddle_components = self.client.fetch_straddle_from_portfolio(
-                instrument.symbol
-            )
-            if straddle_components is not None:
+            straddles = self.client.fetch_straddles_from_portfolio(instrument.symbol)
+            broker_expiration_dates = {
+                getattr(call_contract, "lastTradeDateOrContractMonth", "")
+                for call_contract, _, _ in straddles
+            }
+            for straddle_components in straddles:
                 self.load_open_position_from_broker(instrument, straddle_components)
-            else:
-                active_position = self.active_positions.get(instrument.symbol)
-                if active_position is not None and active_position.status == "OPEN":
-                    active_position.status = "NEUTRALIZED"
+            for (
+                symbol,
+                expiration_date,
+            ), active_position in self.active_positions.items():
+                if symbol != instrument.symbol:
+                    continue
+                if (
+                    active_position.status == "OPEN"
+                    and expiration_date not in broker_expiration_dates
+                ):
+                    expiration_time = datetime.strptime(
+                        expiration_date, "%Y%m%d"
+                    ).replace(hour=16, minute=0, second=0)
+                    if datetime.now() >= expiration_time:
+                        active_position.status = "EXPIRED"
+                    else:
+                        active_position.status = "NEUTRALIZED"
 
     def check_active_positions(self) -> None:
-        for instrument in self.instruments:
-            active_position = self.active_positions.get(instrument.symbol)
-            if active_position is None or active_position.status != "OPEN":
+        for position_key, active_position in list(self.active_positions.items()):
+            if active_position.status != "OPEN":
+                continue
+
+            expiration_date = position_key[1]
+            expiration_time = datetime.strptime(expiration_date, "%Y%m%d").replace(
+                hour=16, minute=0, second=0
+            )
+            if datetime.now() >= expiration_time:
+                active_position.status = "EXPIRED"
                 continue
 
             current_price = self.client.get_current_price(
-                instrument.symbol, instrument.exchange, instrument.currency
+                active_position.symbol,
+                active_position.exchange,
+                active_position.currency,
             )
             if (
                 current_price < active_position.lower_price
@@ -166,13 +197,13 @@ class TradingBot:
 
     def maybe_open_new_positions(self) -> None:
         for instrument in self.instruments:
-            active_position = self.active_positions.get(instrument.symbol)
-            if active_position is not None and active_position.status == "OPEN":
-                continue
-
             nearest_expiration = self.client.get_nearest_expiration(
                 instrument.symbol, instrument.exchange, instrument.currency
             )
+            position_key = (instrument.symbol, nearest_expiration)
+            if position_key in self.active_positions:
+                continue
+
             if self.is_maturity_within_check_window(nearest_expiration):
                 self.client.download_data(
                     instrument.symbol, instrument.exchange, instrument.currency
@@ -195,7 +226,7 @@ class TradingBot:
                         self.fixed_capital_amount_dollars,
                     )
                 )
-                self.active_positions[instrument.symbol] = self._create_position(
+                self.active_positions[position_key] = self._create_position(
                     instrument,
                     lower_price,
                     upper_price,
