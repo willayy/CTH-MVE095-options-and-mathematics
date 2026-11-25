@@ -11,8 +11,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.main import parse_instrument
 from src.trading_bot import (
+    ActiveBoundary,
     Instrument,
-    Position,
     TradingBot,
 )
 
@@ -24,7 +24,7 @@ def test_parse_instrument() -> None:
     assert instrument.currency == "USD"
 
 
-def test_is_maturity_within_check_window() -> None:
+def test_is_within_twenty_four_hours() -> None:
     instruments = [Instrument("SPX", "CBOE", "USD")]
     bot = TradingBot(
         instruments,
@@ -36,21 +36,21 @@ def test_is_maturity_within_check_window() -> None:
         0.995,
         3.0,
     )
-    tomorrow_date = (datetime.now() + timedelta(hours=10)).strftime("%Y%m%d")
+    target_date = (datetime.now() + timedelta(hours=10)).strftime("%Y%m%d")
     with patch("src.trading_bot.datetime") as mock_datetime:
         mock_datetime.strptime = datetime.strptime
         mock_datetime.now.return_value = datetime.strptime(
-            tomorrow_date, "%Y%m%d"
+            target_date, "%Y%m%d"
         ).replace(hour=10, minute=0, second=0)
-        assert bot.is_maturity_within_check_window(tomorrow_date) is True
+        assert bot.is_within_twenty_four_hours(target_date) is True
 
         mock_datetime.now.return_value = datetime.strptime(
-            tomorrow_date, "%Y%m%d"
+            target_date, "%Y%m%d"
         ).replace(hour=17, minute=0, second=0)
-        assert bot.is_maturity_within_check_window(tomorrow_date) is False
+        assert bot.is_within_twenty_four_hours(target_date) is False
 
 
-def test_trading_bot_opens_position_when_it_should() -> None:
+def test_check_and_trade_opens_when_no_position_open() -> None:
     instruments = [Instrument("SPX", "CBOE", "USD")]
     bot = TradingBot(
         instruments,
@@ -64,41 +64,64 @@ def test_trading_bot_opens_position_when_it_should() -> None:
     )
     bot.client = MagicMock()
     bot.client.get_nearest_expiration.return_value = "20991119"
+    bot.client.has_open_position.return_value = False
     bot.client.get_current_price.return_value = 5000.0
     call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
     put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
     bot.client.create_straddle.return_value = (call_contract, put_contract, 2)
 
     with (
-        patch.object(bot, "is_maturity_within_check_window", return_value=True),
+        patch.object(bot, "is_within_twenty_four_hours", return_value=True),
         patch(
             "src.trading_bot.bayesian_inference", return_value=(4900.0, 5100.0)
         ) as mock_bayesian_inference,
     ):
-        bot.maybe_open_new_positions()
+        bot.check_and_trade()
 
         bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
         mock_bayesian_inference.assert_called_once_with("SPX", 5000.0, 0.95, 0.995)
         bot.client.create_straddle.assert_called_once_with(
             "SPX", "CBOE", "USD", "20991119", 100000.0
         )
-        assert ("SPX", "20991119") in bot.active_positions
-        active_position = bot.active_positions[("SPX", "20991119")]
-        assert active_position.symbol == "SPX"
-        assert active_position.exchange == "CBOE"
-        assert active_position.currency == "USD"
-        assert active_position.lower_price == 4900.0
-        assert active_position.upper_price == 5100.0
-        assert active_position.call_contract == call_contract
-        assert active_position.put_contract == put_contract
-        assert active_position.order_quantity == 2
-        assert active_position.maturity == "20991119 16:00"
-        assert active_position.start_time is not None
-        assert active_position.status == "OPEN"
-        assert active_position.loss == 0.0
+        assert "SPX" in bot.active_boundaries
+        boundary = bot.active_boundaries["SPX"]
+        assert boundary.lower_price == 4900.0
+        assert boundary.upper_price == 5100.0
+        assert boundary.call_contract == call_contract
+        assert boundary.put_contract == put_contract
+        assert boundary.order_quantity == 2
+        assert boundary.expiration_date == "20991119"
 
 
-def test_trading_bot_neutralizes_when_it_should() -> None:
+def test_check_and_trade_does_not_open_when_position_already_open() -> None:
+    instruments = [Instrument("SPX", "CBOE", "USD")]
+    bot = TradingBot(
+        instruments,
+        "127.0.0.1",
+        7497,
+        10,
+        100000.0,
+        0.95,
+        0.995,
+        3.0,
+    )
+    bot.client = MagicMock()
+    bot.client.get_nearest_expiration.return_value = "20991119"
+    bot.client.has_open_position.return_value = True
+    call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
+    put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
+    bot.active_boundaries["SPX"] = ActiveBoundary(
+        4900.0, 5100.0, call_contract, put_contract, 2, "20991119"
+    )
+    bot.client.get_current_price.return_value = 5000.0
+
+    bot.check_and_trade()
+
+    assert bot.client.create_straddle.call_count == 0
+    assert bot.client.neutralize_straddle.call_count == 0
+
+
+def test_check_and_trade_neutralizes_when_bounds_breached() -> None:
     instruments = [Instrument("SPX", "CBOE", "USD")]
     bot = TradingBot(
         instruments,
@@ -113,126 +136,24 @@ def test_trading_bot_neutralizes_when_it_should() -> None:
     bot.client = MagicMock()
     call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
     put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
-    bot.active_positions[("SPX", "20991119")] = Position(
-        "SPX",
-        "CBOE",
-        "USD",
-        4900.0,
-        5100.0,
-        call_contract,
-        put_contract,
-        2,
-        "2099-11-18 16:00:00",
-        "20991119 16:00",
-        "OPEN",
-        0.0,
+    bot.active_boundaries["SPX"] = ActiveBoundary(
+        4900.0, 5100.0, call_contract, put_contract, 2, "20991119"
     )
-
     bot.client.get_current_price.return_value = 5150.0
-    bot.client.get_position_profit_and_loss.return_value = -250.0
-    bot.check_active_positions()
+    bot.client.get_nearest_expiration.return_value = "20991119"
+    bot.client.has_open_position.return_value = False
+    bot.opened_expirations.add(("SPX", "20991119"))
+
+    bot.check_and_trade()
 
     bot.client.neutralize_straddle.assert_called_once_with(
         call_contract, put_contract, 2
     )
-    assert bot.active_positions[("SPX", "20991119")].status == "NEUTRALIZED"
-    assert bot.active_positions[("SPX", "20991119")].loss == -250.0
+    assert "SPX" not in bot.active_boundaries
+    assert bot.client.create_straddle.call_count == 0
 
 
-def test_trading_bot_opens_position_again() -> None:
-    instruments = [Instrument("SPX", "CBOE", "USD")]
-    bot = TradingBot(
-        instruments,
-        "127.0.0.1",
-        7497,
-        10,
-        100000.0,
-        0.95,
-        0.995,
-        3.0,
-    )
-    bot.client = MagicMock()
-    bot.client.get_nearest_expiration.return_value = "20991120"
-    bot.client.get_current_price.return_value = 5150.0
-    call_contract = Option("SPX", "20991120", 5150.0, "C", "CBOE", currency="USD")
-    put_contract = Option("SPX", "20991120", 5150.0, "P", "CBOE", currency="USD")
-    bot.client.create_straddle.return_value = (call_contract, put_contract, 2)
-    bot.active_positions[("SPX", "20991119")] = Position(
-        "SPX",
-        "CBOE",
-        "USD",
-        4900.0,
-        5100.0,
-        call_contract,
-        put_contract,
-        2,
-        "2099-11-18 16:00:00",
-        "20991119 16:00",
-        "NEUTRALIZED",
-        -200.0,
-    )
-
-    with (
-        patch.object(bot, "is_maturity_within_check_window", return_value=True),
-        patch(
-            "src.trading_bot.bayesian_inference", return_value=(5050.0, 5250.0)
-        ) as mock_bayesian_inference,
-    ):
-        bot.maybe_open_new_positions()
-
-        mock_bayesian_inference.assert_called_once_with("SPX", 5150.0, 0.95, 0.995)
-        bot.client.create_straddle.assert_called_once_with(
-            "SPX", "CBOE", "USD", "20991120", 100000.0
-        )
-        assert bot.active_positions[("SPX", "20991120")].lower_price == 5050.0
-        assert bot.active_positions[("SPX", "20991120")].upper_price == 5250.0
-        assert bot.active_positions[("SPX", "20991120")].call_contract == call_contract
-        assert bot.active_positions[("SPX", "20991120")].put_contract == put_contract
-        assert bot.active_positions[("SPX", "20991120")].order_quantity == 2
-        assert bot.active_positions[("SPX", "20991120")].maturity == "20991120 16:00"
-        assert bot.active_positions[("SPX", "20991120")].start_time is not None
-        assert bot.active_positions[("SPX", "20991120")].status == "OPEN"
-        assert bot.active_positions[("SPX", "20991120")].loss == 0.0
-
-
-def test_trading_bot_keeps_position_until_maturity() -> None:
-    instruments = [Instrument("SPX", "CBOE", "USD")]
-    bot = TradingBot(
-        instruments,
-        "127.0.0.1",
-        7497,
-        10,
-        100000.0,
-        0.95,
-        0.995,
-        3.0,
-    )
-    bot.client = MagicMock()
-    call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
-    put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
-    bot.active_positions[("SPX", "20991119")] = Position(
-        "SPX",
-        "CBOE",
-        "USD",
-        4900.0,
-        5100.0,
-        call_contract,
-        put_contract,
-        2,
-        "2099-11-18 16:00:00",
-        "20991119 16:00",
-        "OPEN",
-        0.0,
-    )
-
-    bot.client.get_current_price.return_value = 5020.0
-    bot.check_active_positions()
-
-    assert bot.active_positions[("SPX", "20991119")].status == "OPEN"
-    assert bot.client.neutralize_straddle.call_count == 0
-
-
-def test_trading_bot_marks_position_expired_at_maturity() -> None:
+def test_check_and_trade_clears_expired_boundary() -> None:
     instruments = [Instrument("SPX", "CBOE", "USD")]
     bot = TradingBot(
         instruments,
@@ -247,32 +168,21 @@ def test_trading_bot_marks_position_expired_at_maturity() -> None:
     bot.client = MagicMock()
     call_contract = Option("SPX", "20200101", 3000.0, "C", "CBOE", currency="USD")
     put_contract = Option("SPX", "20200101", 3000.0, "P", "CBOE", currency="USD")
-    bot.active_positions[("SPX", "20200101")] = Position(
-        "SPX",
-        "CBOE",
-        "USD",
-        2900.0,
-        3100.0,
-        call_contract,
-        put_contract,
-        2,
-        "2019-12-31 16:00:00",
-        "20200101 16:00",
-        "OPEN",
-        0.0,
+    bot.active_boundaries["SPX"] = ActiveBoundary(
+        2900.0, 3100.0, call_contract, put_contract, 2, "20200101"
     )
+    bot.client.get_nearest_expiration.return_value = "20200102"
+    bot.client.has_open_position.return_value = False
+    bot.client.fetch_open_straddle.return_value = None
 
-    bot.check_active_positions()
+    bot.check_and_trade()
 
-    assert bot.active_positions[("SPX", "20200101")].status == "EXPIRED"
+    assert "SPX" not in bot.active_boundaries
     assert bot.client.neutralize_straddle.call_count == 0
 
 
-def test_trading_bot_syncs_position_from_broker() -> None:
-    instruments = [
-        Instrument("SPX", "CBOE", "USD"),
-        Instrument("ESTX50", "EUREX", "EUR"),
-    ]
+def test_check_and_trade_recovers_boundary_on_restart() -> None:
+    instruments = [Instrument("SPX", "CBOE", "USD")]
     bot = TradingBot(
         instruments,
         "127.0.0.1",
@@ -284,24 +194,20 @@ def test_trading_bot_syncs_position_from_broker() -> None:
         3.0,
     )
     bot.client = MagicMock()
+    bot.client.get_nearest_expiration.return_value = "20991119"
+    bot.client.has_open_position.return_value = True
     call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
-    call_contract.lastTradeDateOrContractMonth = "20991119"
     put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
-    bot.client.fetch_straddles_from_portfolio.side_effect = lambda symbol: (
-        [(call_contract, put_contract, 3)] if symbol == "SPX" else []
-    )
+    bot.client.fetch_open_straddle.return_value = (call_contract, put_contract, 2)
     bot.client.get_current_price.return_value = 5000.0
 
     with patch("src.trading_bot.bayesian_inference", return_value=(4920.0, 5080.0)):
-        bot.sync_positions_from_broker()
+        bot.check_and_trade()
 
     bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
-    assert ("SPX", "20991119") in bot.active_positions
-    assert bot.active_positions[("SPX", "20991119")].status == "OPEN"
-    assert bot.active_positions[("SPX", "20991119")].order_quantity == 3
-    assert bot.active_positions[("SPX", "20991119")].lower_price == 4920.0
-    assert bot.active_positions[("SPX", "20991119")].upper_price == 5080.0
-    assert ("ESTX50", "20991119") not in bot.active_positions
+    assert "SPX" in bot.active_boundaries
+    assert bot.active_boundaries["SPX"].lower_price == 4920.0
+    assert bot.active_boundaries["SPX"].upper_price == 5080.0
 
 
 def test_log_status_prints_profit_and_loss_and_count(capsys) -> None:
@@ -317,24 +223,9 @@ def test_log_status_prints_profit_and_loss_and_count(capsys) -> None:
         3.0,
     )
     bot.client = MagicMock()
-    call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
-    put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
-    bot.active_positions[("SPX", "20991119")] = Position(
-        "SPX",
-        "CBOE",
-        "USD",
-        4900.0,
-        5100.0,
-        call_contract,
-        put_contract,
-        2,
-        "2099-11-18 16:00:00",
-        "20991119 16:00",
-        "OPEN",
-        0.0,
-    )
-    bot.client.get_position_profit_and_loss.return_value = 150.25
+    bot.client.get_total_unrealized_profit_and_loss.return_value = 150.25
     bot.client.get_total_account_value.return_value = 997702.64
+    bot.client.get_open_straddles_count.return_value = 1
 
     bot.log_status()
     captured = capsys.readouterr()
