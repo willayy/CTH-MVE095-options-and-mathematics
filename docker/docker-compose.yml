@@ -30,7 +30,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - ../data:/app/data
     command: [
-      "python", "src/trading_bot.py",
+      "python", "src/main.py",
       "--host", "ib-gateway",
       "--port", "4004",
       "--client-id", "${INTERACTIVE_BROKERS_CLIENT_ID:-10}",
