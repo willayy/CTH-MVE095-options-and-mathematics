@@ -70,81 +70,6 @@ class TradingBot:
             minimum_window_seconds <= seconds_until_expiration <= maximum_window_seconds
         )
 
-    def check_active_boundaries(self) -> None:
-        for instrument in self.instruments:
-            boundary = self.active_boundaries.get(instrument.symbol)
-            if boundary is None:
-                continue
-
-            expiration_time = datetime.strptime(
-                boundary.expiration_date, "%Y%m%d"
-            ).replace(hour=16, minute=0, second=0)
-            if datetime.now() >= expiration_time:
-                del self.active_boundaries[instrument.symbol]
-                continue
-
-            current_price = self.client.get_current_price(
-                instrument.symbol, instrument.exchange, instrument.currency
-            )
-            if (
-                current_price < boundary.lower_price
-                or current_price > boundary.upper_price
-            ):
-                self.client.neutralize_straddle(
-                    boundary.call_contract,
-                    boundary.put_contract,
-                    boundary.order_quantity,
-                )
-                del self.active_boundaries[instrument.symbol]
-
-    def should_open_position(
-        self,
-        instrument: Instrument,
-        nearest_expiration: str,
-    ) -> bool:
-        expiration_key = (instrument.symbol, nearest_expiration)
-        return (
-            not self.client.has_open_position(instrument.symbol, nearest_expiration)
-            and expiration_key not in self.opened_expirations
-            and self.is_within_expiration_window(
-                nearest_expiration, 23.5 * 3600.0, 24.0 * 3600.0
-            )
-        )
-
-    def open_straddle(
-        self,
-        instrument: Instrument,
-        nearest_expiration: str,
-    ) -> None:
-        self.client.download_data(
-            instrument.symbol, instrument.exchange, instrument.currency
-        )
-        current_price = self.client.get_current_price(
-            instrument.symbol, instrument.exchange, instrument.currency
-        )
-        lower_price, upper_price = bayesian_inference(
-            instrument.symbol,
-            current_price,
-            self.credibility_interval_percentage,
-            self.decay_factor,
-        )
-        call_contract, put_contract, order_quantity = self.client.create_straddle(
-            instrument.symbol,
-            instrument.exchange,
-            instrument.currency,
-            nearest_expiration,
-            self.fixed_capital_amount_dollars,
-        )
-        self.opened_expirations.add((instrument.symbol, nearest_expiration))
-        self.active_boundaries[instrument.symbol] = ActiveBoundary(
-            lower_price,
-            upper_price,
-            call_contract,
-            put_contract,
-            order_quantity,
-            nearest_expiration,
-        )
-
     def recover_boundary(
         self,
         instrument: Instrument,
@@ -177,19 +102,90 @@ class TradingBot:
             nearest_expiration,
         )
 
-    def trade(self) -> None:
-        for instrument in self.instruments:
-            nearest_expiration = self.client.get_nearest_expiration(
-                instrument.symbol, instrument.exchange, instrument.currency
-            )
-            if self.should_open_position(instrument, nearest_expiration):
-                self.open_straddle(instrument, nearest_expiration)
-            elif (
-                instrument.symbol not in self.active_boundaries
-                and self.client.has_open_position(instrument.symbol, nearest_expiration)
-            ):
-                self.opened_expirations.add((instrument.symbol, nearest_expiration))
+    def check_opening_conditions(self, instrument: Instrument) -> bool:
+        nearest_expiration = self.client.get_nearest_expiration(
+            instrument.symbol, instrument.exchange, instrument.currency
+        )
+        expiration_key = (instrument.symbol, nearest_expiration)
+        if self.client.has_open_position(instrument.symbol, nearest_expiration):
+            self.opened_expirations.add(expiration_key)
+            if instrument.symbol not in self.active_boundaries:
                 self.recover_boundary(instrument, nearest_expiration)
+            return False
+
+        if expiration_key in self.opened_expirations:
+            return False
+
+        return self.is_within_expiration_window(
+            nearest_expiration, 23.5 * 3600.0, 24.0 * 3600.0
+        )
+
+    def open_position(self, instrument: Instrument) -> None:
+        nearest_expiration = self.client.get_nearest_expiration(
+            instrument.symbol, instrument.exchange, instrument.currency
+        )
+        self.client.download_data(
+            instrument.symbol, instrument.exchange, instrument.currency
+        )
+        current_price = self.client.get_current_price(
+            instrument.symbol, instrument.exchange, instrument.currency
+        )
+        lower_price, upper_price = bayesian_inference(
+            instrument.symbol,
+            current_price,
+            self.credibility_interval_percentage,
+            self.decay_factor,
+        )
+        call_contract, put_contract, order_quantity = self.client.create_straddle(
+            instrument.symbol,
+            instrument.exchange,
+            instrument.currency,
+            nearest_expiration,
+            self.fixed_capital_amount_dollars,
+        )
+        self.opened_expirations.add((instrument.symbol, nearest_expiration))
+        self.active_boundaries[instrument.symbol] = ActiveBoundary(
+            lower_price,
+            upper_price,
+            call_contract,
+            put_contract,
+            order_quantity,
+            nearest_expiration,
+        )
+
+    def check_closing_conditions(self, instrument: Instrument) -> bool:
+        boundary = self.active_boundaries.get(instrument.symbol)
+        if boundary is None:
+            return False
+
+        expiration_time = datetime.strptime(boundary.expiration_date, "%Y%m%d").replace(
+            hour=16, minute=0, second=0
+        )
+        if datetime.now() >= expiration_time:
+            return True
+
+        current_price = self.client.get_current_price(
+            instrument.symbol, instrument.exchange, instrument.currency
+        )
+        return (
+            current_price < boundary.lower_price or current_price > boundary.upper_price
+        )
+
+    def close_position(self, instrument: Instrument) -> None:
+        boundary = self.active_boundaries.get(instrument.symbol)
+        if boundary is None:
+            return
+
+        expiration_time = datetime.strptime(boundary.expiration_date, "%Y%m%d").replace(
+            hour=16, minute=0, second=0
+        )
+        if datetime.now() < expiration_time:
+            self.client.neutralize_straddle(
+                boundary.call_contract,
+                boundary.put_contract,
+                boundary.order_quantity,
+            )
+        del self.active_boundaries[instrument.symbol]
 
     def log_status(self) -> None:
         total_profit_and_loss = self.client.get_total_unrealized_profit_and_loss()
@@ -206,7 +202,11 @@ class TradingBot:
     def run(self) -> None:
         self.client.check_connection()
         while True:
-            self.check_active_boundaries()
-            self.trade()
+            for instrument in self.instruments:
+                if self.check_opening_conditions(instrument):
+                    self.open_position(instrument)
+                if self.check_closing_conditions(instrument):
+                    self.close_position(instrument)
+
             self.log_status()
             self.client.sleep(self.check_interval_seconds)
