@@ -1,6 +1,5 @@
 import sys
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from ib_async import Option
@@ -57,14 +56,17 @@ class TradingBot:
 
     def is_within_expiration_window(
         self,
+        instrument: Instrument,
         expiration_date: str,
         minimum_window_seconds: float,
         maximum_window_seconds: float,
     ) -> bool:
-        expiration_time = datetime.strptime(expiration_date, "%Y%m%d").replace(
-            hour=16, minute=0, second=0
+        seconds_until_expiration = self.client.get_seconds_until_expiration(
+            instrument.symbol,
+            instrument.exchange,
+            instrument.currency,
+            expiration_date,
         )
-        seconds_until_expiration = (expiration_time - datetime.now()).total_seconds()
         return (
             minimum_window_seconds <= seconds_until_expiration <= maximum_window_seconds
         )
@@ -106,7 +108,7 @@ class TradingBot:
             instrument.symbol, instrument.exchange, instrument.currency
         )
         return self.is_within_expiration_window(
-            nearest_expiration, 23.5 * 3600.0, 24.0 * 3600.0
+            instrument, nearest_expiration, 23.5 * 3600.0, 24.0 * 3600.0
         ) and not self.client.has_open_position(instrument.symbol, nearest_expiration)
 
     def open_position(self, instrument: Instrument) -> None:
@@ -157,11 +159,9 @@ class TradingBot:
         if boundary is None:
             return False
 
-        expiration_time = datetime.strptime(boundary.expiration_date, "%Y%m%d").replace(
-            hour=16, minute=0, second=0
-        )
-        if datetime.now() >= expiration_time:
-            return True
+        if self.client.is_contract_expired(boundary.call_contract):
+            del self.active_boundaries[instrument.symbol]
+            return False
 
         current_price = self.client.get_current_price(
             instrument.symbol, instrument.exchange, instrument.currency
@@ -175,10 +175,7 @@ class TradingBot:
         if boundary is None:
             return
 
-        expiration_time = datetime.strptime(boundary.expiration_date, "%Y%m%d").replace(
-            hour=16, minute=0, second=0
-        )
-        if datetime.now() < expiration_time:
+        if self.client.has_open_position(instrument.symbol, boundary.expiration_date):
             self.client.neutralize_straddle(
                 boundary.call_contract,
                 boundary.put_contract,
