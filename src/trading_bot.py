@@ -164,7 +164,7 @@ class TradingBot:
                 )
                 active_position.status = "NEUTRALIZED"
 
-    def open_new_positions(self) -> None:
+    def maybe_open_new_positions(self) -> None:
         for instrument in self.instruments:
             active_position = self.active_positions.get(instrument.symbol)
             if active_position is not None and active_position.status == "OPEN":
@@ -237,5 +237,5 @@ class TradingBot:
             self.client.sleep(self.check_interval_seconds)
             self.sync_positions_from_broker()
             self.check_active_positions()
-            self.open_new_positions()
+            self.maybe_open_new_positions()
             self.log_status()
