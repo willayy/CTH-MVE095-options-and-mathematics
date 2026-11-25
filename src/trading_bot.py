@@ -105,17 +105,9 @@ class TradingBot:
         nearest_expiration = self.client.get_nearest_expiration(
             instrument.symbol, instrument.exchange, instrument.currency
         )
-        if self.client.has_open_position(instrument.symbol, nearest_expiration):
-            if instrument.symbol not in self.active_boundaries:
-                self.recover_boundary(instrument, nearest_expiration)
-            return False
-
-        if instrument.symbol in self.active_boundaries:
-            return False
-
         return self.is_within_expiration_window(
             nearest_expiration, 23.5 * 3600.0, 24.0 * 3600.0
-        )
+        ) and not self.client.has_open_position(instrument.symbol, nearest_expiration)
 
     def open_position(self, instrument: Instrument) -> None:
         nearest_expiration = self.client.get_nearest_expiration(
@@ -152,6 +144,15 @@ class TradingBot:
         )
 
     def check_closing_conditions(self, instrument: Instrument) -> bool:
+        if instrument.symbol not in self.active_boundaries:
+            nearest_expiration = self.client.get_nearest_expiration(
+                instrument.symbol, instrument.exchange, instrument.currency
+            )
+            if self.client.has_open_position(instrument.symbol, nearest_expiration):
+                self.recover_boundary(instrument, nearest_expiration)
+            else:
+                return False
+
         boundary = self.active_boundaries.get(instrument.symbol)
         if boundary is None:
             return False
