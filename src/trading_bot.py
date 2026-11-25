@@ -54,7 +54,6 @@ class TradingBot:
             host_address, port_number, client_identifier
         )
         self.active_boundaries: dict[str, ActiveBoundary] = {}
-        self.opened_expirations: set[tuple[str, str]] = set()
 
     def is_within_expiration_window(
         self,
@@ -106,14 +105,12 @@ class TradingBot:
         nearest_expiration = self.client.get_nearest_expiration(
             instrument.symbol, instrument.exchange, instrument.currency
         )
-        expiration_key = (instrument.symbol, nearest_expiration)
         if self.client.has_open_position(instrument.symbol, nearest_expiration):
-            self.opened_expirations.add(expiration_key)
             if instrument.symbol not in self.active_boundaries:
                 self.recover_boundary(instrument, nearest_expiration)
             return False
 
-        if expiration_key in self.opened_expirations:
+        if instrument.symbol in self.active_boundaries:
             return False
 
         return self.is_within_expiration_window(
@@ -142,8 +139,9 @@ class TradingBot:
             instrument.currency,
             nearest_expiration,
             self.fixed_capital_amount_dollars,
+            lower_price,
+            upper_price,
         )
-        self.opened_expirations.add((instrument.symbol, nearest_expiration))
         self.active_boundaries[instrument.symbol] = ActiveBoundary(
             lower_price,
             upper_price,
