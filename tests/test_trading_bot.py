@@ -11,8 +11,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.ib_client import InteractiveBrokersClient
 from src.main import parse_instrument
 from src.trading_bot import (
-    ActiveBoundary,
     Instrument,
+    Position,
     TradingBot,
 )
 
@@ -131,14 +131,14 @@ def test_check_opening_conditions_and_open_position() -> None:
         bot.client.create_straddle.assert_called_once_with(
             "SPX", "CBOE", "USD", "20991119", 100000.0, 4900.0, 5100.0
         )
-        assert "SPX" in bot.active_boundaries
-        boundary = bot.active_boundaries["SPX"]
-        assert boundary.lower_price == 4900.0
-        assert boundary.upper_price == 5100.0
-        assert boundary.call_contract == call_contract
-        assert boundary.put_contract == put_contract
-        assert boundary.order_quantity == 2
-        assert boundary.expiration_date == "20991119"
+        assert "SPX" in bot.positions
+        position = bot.positions["SPX"]
+        assert position.lower_price == 4900.0
+        assert position.upper_price == 5100.0
+        assert position.call_contract == call_contract
+        assert position.put_contract == put_contract
+        assert position.order_quantity == 2
+        assert position.expiration_date == "20991119"
 
 
 def test_check_opening_conditions_returns_false_when_position_already_open() -> None:
@@ -178,7 +178,7 @@ def test_check_closing_conditions_and_close_position_neutralizes_when_bounds_bre
     bot.client = MagicMock()
     call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
     put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
-    bot.active_boundaries["SPX"] = ActiveBoundary(
+    bot.positions["SPX"] = Position(
         4900.0, 5100.0, call_contract, put_contract, 2, "20991119"
     )
     bot.client.is_contract_expired.return_value = False
@@ -191,7 +191,7 @@ def test_check_closing_conditions_and_close_position_neutralizes_when_bounds_bre
     bot.client.neutralize_straddle.assert_called_once_with(
         call_contract, put_contract, 2
     )
-    assert "SPX" not in bot.active_boundaries
+    assert "SPX" not in bot.positions
 
 
 def test_check_closing_conditions_disregards_expired_contract() -> None:
@@ -209,13 +209,13 @@ def test_check_closing_conditions_disregards_expired_contract() -> None:
     bot.client = MagicMock()
     call_contract = Option("SPX", "20200101", 3000.0, "C", "CBOE", currency="USD")
     put_contract = Option("SPX", "20200101", 3000.0, "P", "CBOE", currency="USD")
-    bot.active_boundaries["SPX"] = ActiveBoundary(
+    bot.positions["SPX"] = Position(
         2900.0, 3100.0, call_contract, put_contract, 2, "20200101"
     )
     bot.client.is_contract_expired.return_value = True
 
     assert bot.check_closing_conditions(instrument) is False
-    assert "SPX" not in bot.active_boundaries
+    assert "SPX" not in bot.positions
     assert bot.client.neutralize_straddle.call_count == 0
 
 
@@ -244,9 +244,9 @@ def test_check_closing_conditions_recovers_boundary_on_restart() -> None:
         assert bot.check_closing_conditions(instrument) is False
 
     bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
-    assert "SPX" in bot.active_boundaries
-    assert bot.active_boundaries["SPX"].lower_price == 4920.0
-    assert bot.active_boundaries["SPX"].upper_price == 5080.0
+    assert "SPX" in bot.positions
+    assert bot.positions["SPX"].lower_price == 4920.0
+    assert bot.positions["SPX"].upper_price == 5080.0
 
 
 def test_log_status_prints_profit_and_loss_and_count(capsys) -> None:
