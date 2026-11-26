@@ -52,7 +52,7 @@ class TradingBot:
         self.client = InteractiveBrokersClient(
             host_address, port_number, client_identifier
         )
-        self.positions: dict[str, Position] = {}
+        self.positions: dict[tuple[str, str], Position] = {}
 
     def is_within_expiration_window(
         self,
@@ -71,98 +71,115 @@ class TradingBot:
             minimum_window_seconds <= seconds_until_expiration <= maximum_window_seconds
         )
 
+    def compute_price_bounds(self, instrument: Instrument) -> tuple[float, float]:
+        self.client.download_data(
+            instrument.symbol, instrument.exchange, instrument.currency
+        )
+        current_price = self.client.get_current_price(
+            instrument.symbol, instrument.exchange, instrument.currency
+        )
+        return bayesian_inference(
+            instrument.symbol,
+            current_price,
+            self.credibility_interval_percentage,
+            self.decay_factor,
+        )
+
     def recover_position(
         self,
         instrument: Instrument,
-        nearest_expiration: str,
+        expiration_date: str,
     ) -> None:
         open_straddle = self.client.fetch_open_straddle(
-            instrument.symbol, nearest_expiration
+            instrument.symbol, expiration_date
         )
         if open_straddle is None:
             return
         call_contract, put_contract, order_quantity = open_straddle
-        self.client.download_data(
-            instrument.symbol, instrument.exchange, instrument.currency
-        )
-        current_price = self.client.get_current_price(
-            instrument.symbol, instrument.exchange, instrument.currency
-        )
-        lower_price, upper_price = bayesian_inference(
-            instrument.symbol,
-            current_price,
-            self.credibility_interval_percentage,
-            self.decay_factor,
-        )
-        self.positions[instrument.symbol] = Position(
+        lower_price, upper_price = self.compute_price_bounds(instrument)
+        position_key = (instrument.symbol, expiration_date)
+        self.positions[position_key] = Position(
             lower_price,
             upper_price,
             call_contract,
             put_contract,
             order_quantity,
-            nearest_expiration,
+            expiration_date,
         )
 
-    def check_opening_conditions(self, instrument: Instrument) -> bool:
-        nearest_expiration = self.client.get_nearest_expiration(
-            instrument.symbol, instrument.exchange, instrument.currency
+    def can_open_expiration(
+        self,
+        instrument: Instrument,
+        expiration_date: str,
+    ) -> bool:
+        position_key = (instrument.symbol, expiration_date)
+        if position_key in self.positions:
+            return False
+        within_window = self.is_within_expiration_window(
+            instrument, expiration_date, 23.5 * 3600.0, 24.5 * 3600.0
         )
-        return self.is_within_expiration_window(
-            instrument, nearest_expiration, 23.5 * 3600.0, 24.0 * 3600.0
-        ) and not self.client.has_open_position(instrument.symbol, nearest_expiration)
+        if not within_window:
+            return False
+        return not self.client.has_open_position(instrument.symbol, expiration_date)
 
-    def open_position(self, instrument: Instrument) -> None:
-        nearest_expiration = self.client.get_nearest_expiration(
+    def find_openable_expirations(self, instrument: Instrument) -> list[str]:
+        upcoming_expirations = self.client.get_upcoming_expirations(
             instrument.symbol, instrument.exchange, instrument.currency
         )
-        self.client.download_data(
-            instrument.symbol, instrument.exchange, instrument.currency
-        )
-        current_price = self.client.get_current_price(
-            instrument.symbol, instrument.exchange, instrument.currency
-        )
-        lower_price, upper_price = bayesian_inference(
-            instrument.symbol,
-            current_price,
-            self.credibility_interval_percentage,
-            self.decay_factor,
-        )
+        return [
+            expiration_date
+            for expiration_date in upcoming_expirations
+            if self.can_open_expiration(instrument, expiration_date)
+        ]
+
+    def open_position(self, instrument: Instrument, expiration_date: str) -> None:
+        lower_price, upper_price = self.compute_price_bounds(instrument)
         call_contract, put_contract, order_quantity = self.client.create_straddle(
             instrument.symbol,
             instrument.exchange,
             instrument.currency,
-            nearest_expiration,
+            expiration_date,
             self.fixed_capital_amount_dollars,
             lower_price,
             upper_price,
         )
-        self.positions[instrument.symbol] = Position(
+        position_key = (instrument.symbol, expiration_date)
+        self.positions[position_key] = Position(
             lower_price,
             upper_price,
             call_contract,
             put_contract,
             order_quantity,
-            nearest_expiration,
+            expiration_date,
         )
 
-    def check_closing_conditions(self, instrument: Instrument) -> bool:
-        if instrument.symbol not in self.positions:
-            nearest_expiration = self.client.get_nearest_expiration(
-                instrument.symbol, instrument.exchange, instrument.currency
-            )
-            if self.client.has_open_position(instrument.symbol, nearest_expiration):
-                self.recover_position(instrument, nearest_expiration)
-            else:
-                return False
+    def recover_positions(self, instrument: Instrument) -> None:
+        upcoming_expirations = self.client.get_upcoming_expirations(
+            instrument.symbol, instrument.exchange, instrument.currency
+        )
+        for expiration_date in upcoming_expirations:
+            self.recover_untracked_expiration(instrument, expiration_date)
 
-        position = self.positions.get(instrument.symbol)
-        if position is None:
-            return False
+    def recover_untracked_expiration(
+        self,
+        instrument: Instrument,
+        expiration_date: str,
+    ) -> None:
+        position_key = (instrument.symbol, expiration_date)
+        if position_key in self.positions:
+            return
+        if self.client.has_open_position(instrument.symbol, expiration_date):
+            self.recover_position(instrument, expiration_date)
 
+    def is_position_closable(
+        self,
+        instrument: Instrument,
+        expiration_date: str,
+        position: Position,
+    ) -> bool:
         if self.client.is_contract_expired(position.call_contract):
-            del self.positions[instrument.symbol]
+            del self.positions[(instrument.symbol, expiration_date)]
             return False
-
         current_price = self.client.get_current_price(
             instrument.symbol, instrument.exchange, instrument.currency
         )
@@ -170,8 +187,21 @@ class TradingBot:
             current_price < position.lower_price or current_price > position.upper_price
         )
 
-    def close_position(self, instrument: Instrument) -> None:
-        position = self.positions.get(instrument.symbol)
+    def find_closable_expirations(self, instrument: Instrument) -> list[str]:
+        tracked_entries = [
+            (expiration_date, position)
+            for (symbol, expiration_date), position in list(self.positions.items())
+            if symbol == instrument.symbol
+        ]
+        return [
+            expiration_date
+            for expiration_date, position in tracked_entries
+            if self.is_position_closable(instrument, expiration_date, position)
+        ]
+
+    def close_position(self, instrument: Instrument, expiration_date: str) -> None:
+        position_key = (instrument.symbol, expiration_date)
+        position = self.positions.get(position_key)
         if position is None:
             return
 
@@ -181,7 +211,7 @@ class TradingBot:
                 position.put_contract,
                 position.order_quantity,
             )
-        del self.positions[instrument.symbol]
+        del self.positions[position_key]
 
     def log_status(self) -> None:
         total_profit_and_loss = self.client.get_total_unrealized_profit_and_loss()
@@ -195,14 +225,20 @@ class TradingBot:
             flush=True,
         )
 
+    def process_instrument(self, instrument: Instrument) -> None:
+        for expiration_date in self.find_openable_expirations(instrument):
+            self.open_position(instrument, expiration_date)
+        self.recover_positions(instrument)
+        for expiration_date in self.find_closable_expirations(instrument):
+            self.close_position(instrument, expiration_date)
+
+    def run_iteration(self) -> None:
+        for instrument in self.instruments:
+            self.process_instrument(instrument)
+        self.log_status()
+        self.client.sleep(self.check_interval_seconds)
+
     def run(self) -> None:
         self.client.check_connection()
         while True:
-            for instrument in self.instruments:
-                if self.check_opening_conditions(instrument):
-                    self.open_position(instrument)
-                if self.check_closing_conditions(instrument):
-                    self.close_position(instrument)
-
-            self.log_status()
-            self.client.sleep(self.check_interval_seconds)
+            self.run_iteration()

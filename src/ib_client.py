@@ -77,12 +77,12 @@ class InteractiveBrokersClient:
                 return float(price)
         return float("nan")
 
-    def get_nearest_expiration(
+    def fetch_option_chains(
         self,
         symbol: str,
         exchange: str,
         currency: str,
-    ) -> str:
+    ) -> tuple[Index, list]:
         underlying_contract = Index(symbol, exchange, currency)
         self.interactive_brokers.qualifyContracts(underlying_contract)
         chains = self.interactive_brokers.reqSecDefOptParams(
@@ -91,20 +91,33 @@ class InteractiveBrokersClient:
             underlying_contract.secType,
             underlying_contract.conId,
         )
+        return underlying_contract, chains
+
+    def get_upcoming_expirations(
+        self,
+        symbol: str,
+        exchange: str,
+        currency: str,
+    ) -> list[str]:
+        _, chains = self.fetch_option_chains(symbol, exchange, currency)
         today_date_string = datetime.now().strftime("%Y%m%d")
-        all_expirations = [
-            expiration for chain in chains for expiration in chain.expirations
-        ]
-        future_or_today_expirations = [
+        upcoming_expirations = {
             expiration
-            for expiration in all_expirations
+            for chain in chains
+            for expiration in chain.expirations
             if expiration >= today_date_string
-        ]
-        return (
-            min(future_or_today_expirations)
-            if future_or_today_expirations
-            else min(all_expirations)
-        )
+        }
+        return sorted(upcoming_expirations)
+
+    def get_expiration_datetime(self, contract: Option) -> datetime | None:
+        contract_details_list = self.interactive_brokers.reqContractDetails(contract)
+        if not contract_details_list or not contract_details_list[0].lastTradeTime:
+            return None
+        details = contract_details_list[0]
+        contract_timezone = ZoneInfo(details.timeZoneId)
+        expiration_timestamp = f"{details.realExpirationDate} {details.lastTradeTime}"
+        parsed_datetime = datetime.strptime(expiration_timestamp, "%Y%m%d %H:%M:%S")
+        return parsed_datetime.replace(tzinfo=contract_timezone)
 
     def get_seconds_until_expiration(
         self,
@@ -116,30 +129,18 @@ class InteractiveBrokersClient:
         option_contract = Option(
             symbol, expiration_date_string, exchange=exchange, currency=currency
         )
-        contract_details_list = self.interactive_brokers.reqContractDetails(
-            option_contract
-        )
-        if not contract_details_list or not contract_details_list[0].lastTradeTime:
+        expiration_datetime = self.get_expiration_datetime(option_contract)
+        if expiration_datetime is None:
             return 0.0
-        details = contract_details_list[0]
-        contract_timezone = ZoneInfo(details.timeZoneId)
-        expiration_datetime = datetime.strptime(
-            f"{details.realExpirationDate} {details.lastTradeTime}",
-            "%Y%m%d %H:%M:%S",
-        ).replace(tzinfo=contract_timezone)
-        return (expiration_datetime - datetime.now(contract_timezone)).total_seconds()
+        current_time = datetime.now(expiration_datetime.tzinfo)
+        return (expiration_datetime - current_time).total_seconds()
 
     def is_contract_expired(self, contract: Option) -> bool:
-        contract_details_list = self.interactive_brokers.reqContractDetails(contract)
-        if not contract_details_list or not contract_details_list[0].lastTradeTime:
+        expiration_datetime = self.get_expiration_datetime(contract)
+        if expiration_datetime is None:
             return True
-        details = contract_details_list[0]
-        contract_timezone = ZoneInfo(details.timeZoneId)
-        expiration_datetime = datetime.strptime(
-            f"{details.realExpirationDate} {details.lastTradeTime}",
-            "%Y%m%d %H:%M:%S",
-        ).replace(tzinfo=contract_timezone)
-        return datetime.now(contract_timezone) >= expiration_datetime
+        current_time = datetime.now(expiration_datetime.tzinfo)
+        return current_time >= expiration_datetime
 
     def select_boundary_strikes(
         self,
@@ -171,13 +172,8 @@ class InteractiveBrokersClient:
         lower_price: float,
         upper_price: float,
     ) -> tuple[Option, Option, int]:
-        underlying_contract = Index(symbol, exchange, currency)
-        self.interactive_brokers.qualifyContracts(underlying_contract)
-        chains = self.interactive_brokers.reqSecDefOptParams(
-            underlying_contract.symbol,
-            "",
-            underlying_contract.secType,
-            underlying_contract.conId,
+        underlying_contract, chains = self.fetch_option_chains(
+            symbol, exchange, currency
         )
         matching_chains = [
             chain for chain in chains if expiration_date_string in chain.expirations
@@ -245,16 +241,29 @@ class InteractiveBrokersClient:
             put_contract, MarketOrder("BUY", order_quantity, tif="DAY")
         )
 
+    def matches_short_option(
+        self,
+        portfolio_item: object,
+        symbol: str,
+        expiration_date_string: str,
+    ) -> bool:
+        contract = getattr(portfolio_item, "contract", None)
+        position = getattr(portfolio_item, "position", 0)
+        contract_symbol = getattr(contract, "symbol", "")
+        contract_expiration = getattr(contract, "lastTradeDateOrContractMonth", "")
+        return (
+            contract_symbol == symbol
+            and contract_expiration == expiration_date_string
+            and position < 0
+        )
+
     def has_open_position(
         self,
         symbol: str,
         expiration_date_string: str,
     ) -> bool:
         return any(
-            getattr(item.contract, "symbol", "") == symbol
-            and getattr(item.contract, "lastTradeDateOrContractMonth", "")
-            == expiration_date_string
-            and item.position < 0
+            self.matches_short_option(item, symbol, expiration_date_string)
             for item in self.interactive_brokers.portfolio()
         )
 
@@ -268,10 +277,7 @@ class InteractiveBrokersClient:
             (
                 cast(Option, item.contract)
                 for item in self.interactive_brokers.portfolio()
-                if getattr(item.contract, "symbol", "") == symbol
-                and getattr(item.contract, "lastTradeDateOrContractMonth", "")
-                == expiration_date_string
-                and item.position < 0
+                if self.matches_short_option(item, symbol, expiration_date_string)
                 and getattr(item.contract, "right", "") == option_right
             ),
             None,

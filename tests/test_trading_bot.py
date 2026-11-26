@@ -97,7 +97,8 @@ def test_select_boundary_strikes_fallback_when_outside_available_strikes() -> No
     assert call_strike == 5100.0
 
 
-def test_check_opening_conditions_and_open_position() -> None:
+# AI-GENERATED TEST
+def test_find_openable_expirations_and_open_position() -> None:
     instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
         [instrument],
@@ -110,29 +111,31 @@ def test_check_opening_conditions_and_open_position() -> None:
         3.0,
     )
     bot.client = MagicMock()
-    bot.client.get_nearest_expiration.return_value = "20991119"
+    bot.client.get_upcoming_expirations.return_value = ["20261126", "20991119"]
+    bot.client.get_seconds_until_expiration.side_effect = [
+        2.0 * 3600.0,
+        24.2 * 3600.0,
+    ]
     bot.client.has_open_position.return_value = False
     bot.client.get_current_price.return_value = 5000.0
     call_contract = Option("SPX", "20991119", 5100.0, "C", "CBOE", currency="USD")
     put_contract = Option("SPX", "20991119", 4900.0, "P", "CBOE", currency="USD")
     bot.client.create_straddle.return_value = (call_contract, put_contract, 2)
 
-    with (
-        patch.object(bot, "is_within_expiration_window", return_value=True),
-        patch(
-            "src.trading_bot.bayesian_inference", return_value=(4900.0, 5100.0)
-        ) as mock_bayesian_inference,
-    ):
-        assert bot.check_opening_conditions(instrument) is True
-        bot.open_position(instrument)
+    with patch(
+        "src.trading_bot.bayesian_inference", return_value=(4900.0, 5100.0)
+    ) as mock_bayesian_inference:
+        openable_expirations = bot.find_openable_expirations(instrument)
+        assert openable_expirations == ["20991119"]
+        bot.open_position(instrument, "20991119")
 
         bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
         mock_bayesian_inference.assert_called_once_with("SPX", 5000.0, 0.95, 0.995)
         bot.client.create_straddle.assert_called_once_with(
             "SPX", "CBOE", "USD", "20991119", 100000.0, 4900.0, 5100.0
         )
-        assert "SPX" in bot.positions
-        position = bot.positions["SPX"]
+        assert ("SPX", "20991119") in bot.positions
+        position = bot.positions[("SPX", "20991119")]
         assert position.lower_price == 4900.0
         assert position.upper_price == 5100.0
         assert position.call_contract == call_contract
@@ -141,7 +144,8 @@ def test_check_opening_conditions_and_open_position() -> None:
         assert position.expiration_date == "20991119"
 
 
-def test_check_opening_conditions_returns_false_when_position_already_open() -> None:
+# AI-GENERATED TEST
+def test_find_openable_expirations_skips_when_position_already_open() -> None:
     instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
         [instrument],
@@ -154,14 +158,15 @@ def test_check_opening_conditions_returns_false_when_position_already_open() -> 
         3.0,
     )
     bot.client = MagicMock()
-    bot.client.get_nearest_expiration.return_value = "20991119"
+    bot.client.get_upcoming_expirations.return_value = ["20991119"]
     bot.client.has_open_position.return_value = True
 
     with patch.object(bot, "is_within_expiration_window", return_value=True):
-        assert bot.check_opening_conditions(instrument) is False
+        assert bot.find_openable_expirations(instrument) == []
 
 
-def test_check_closing_conditions_and_close_position_neutralizes_when_bounds_breached() -> (
+# AI-GENERATED TEST
+def test_find_closable_expirations_and_close_position_neutralizes_when_breached() -> (
     None
 ):
     instrument = Instrument("SPX", "CBOE", "USD")
@@ -178,23 +183,24 @@ def test_check_closing_conditions_and_close_position_neutralizes_when_bounds_bre
     bot.client = MagicMock()
     call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
     put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
-    bot.positions["SPX"] = Position(
+    bot.positions[("SPX", "20991119")] = Position(
         4900.0, 5100.0, call_contract, put_contract, 2, "20991119"
     )
     bot.client.is_contract_expired.return_value = False
     bot.client.get_current_price.return_value = 5150.0
     bot.client.has_open_position.return_value = True
 
-    assert bot.check_closing_conditions(instrument) is True
-    bot.close_position(instrument)
+    assert bot.find_closable_expirations(instrument) == ["20991119"]
+    bot.close_position(instrument, "20991119")
 
     bot.client.neutralize_straddle.assert_called_once_with(
         call_contract, put_contract, 2
     )
-    assert "SPX" not in bot.positions
+    assert ("SPX", "20991119") not in bot.positions
 
 
-def test_check_closing_conditions_disregards_expired_contract() -> None:
+# AI-GENERATED TEST
+def test_find_closable_expirations_disregards_expired_contract() -> None:
     instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
         [instrument],
@@ -209,17 +215,18 @@ def test_check_closing_conditions_disregards_expired_contract() -> None:
     bot.client = MagicMock()
     call_contract = Option("SPX", "20200101", 3000.0, "C", "CBOE", currency="USD")
     put_contract = Option("SPX", "20200101", 3000.0, "P", "CBOE", currency="USD")
-    bot.positions["SPX"] = Position(
+    bot.positions[("SPX", "20200101")] = Position(
         2900.0, 3100.0, call_contract, put_contract, 2, "20200101"
     )
     bot.client.is_contract_expired.return_value = True
 
-    assert bot.check_closing_conditions(instrument) is False
-    assert "SPX" not in bot.positions
+    assert bot.find_closable_expirations(instrument) == []
+    assert ("SPX", "20200101") not in bot.positions
     assert bot.client.neutralize_straddle.call_count == 0
 
 
-def test_check_closing_conditions_recovers_boundary_on_restart() -> None:
+# AI-GENERATED TEST
+def test_recover_positions_recovers_boundary_on_restart() -> None:
     instrument = Instrument("SPX", "CBOE", "USD")
     bot = TradingBot(
         [instrument],
@@ -232,7 +239,7 @@ def test_check_closing_conditions_recovers_boundary_on_restart() -> None:
         3.0,
     )
     bot.client = MagicMock()
-    bot.client.get_nearest_expiration.return_value = "20991119"
+    bot.client.get_upcoming_expirations.return_value = ["20991119"]
     bot.client.has_open_position.return_value = True
     call_contract = Option("SPX", "20991119", 5000.0, "C", "CBOE", currency="USD")
     put_contract = Option("SPX", "20991119", 5000.0, "P", "CBOE", currency="USD")
@@ -241,12 +248,13 @@ def test_check_closing_conditions_recovers_boundary_on_restart() -> None:
     bot.client.get_current_price.return_value = 5000.0
 
     with patch("src.trading_bot.bayesian_inference", return_value=(4920.0, 5080.0)):
-        assert bot.check_closing_conditions(instrument) is False
+        bot.recover_positions(instrument)
+        assert bot.find_closable_expirations(instrument) == []
 
     bot.client.download_data.assert_called_once_with("SPX", "CBOE", "USD")
-    assert "SPX" in bot.positions
-    assert bot.positions["SPX"].lower_price == 4920.0
-    assert bot.positions["SPX"].upper_price == 5080.0
+    assert ("SPX", "20991119") in bot.positions
+    assert bot.positions[("SPX", "20991119")].lower_price == 4920.0
+    assert bot.positions[("SPX", "20991119")].upper_price == 5080.0
 
 
 def test_log_status_prints_profit_and_loss_and_count(capsys) -> None:
